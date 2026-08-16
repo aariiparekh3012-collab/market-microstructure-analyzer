@@ -1,0 +1,27 @@
+# Backend framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+websockets>=13.0
+pydantic>=2.7.0
+pydantic-settings>=2.4.0
+python-dotenv>=1.0.1
+
+# Data / analytics
+numpy>=1.26.0
+pandas>=2.2.0
+pyarrow>=17.0.0
+scipy>=1.13.0
+
+# Historical data + broker
+yfinance>=0.2.40
+smartapi-python>=1.4.0     # Angel One SmartAPI
+pyotp>=2.9.0                # TOTP for Angel One login
+
+# Cache (optional — in-memory fallback provided)
+redis>=5.0.0
+
+# Dev / test
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+httpx>=0.27.0
+ruff>=0.6.0
