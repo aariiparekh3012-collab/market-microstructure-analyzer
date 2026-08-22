@@ -240,8 +240,10 @@ The backend exposes three logical WebSocket channels:
 /ws/alerts
 ```
 
-See the FastAPI route definitions in `backend/api/main.py` for the current
-message schemas and endpoint behaviour.
+See the [API reference and five-minute walkthrough](docs/API.md) for REST
+endpoints, WebSocket message schemas, configuration, examples, and error
+behaviour. FastAPI also serves interactive OpenAPI documentation at `/docs`
+while the backend is running.
 
 ## Research and simulation
 
