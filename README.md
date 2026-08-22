@@ -1,5 +1,7 @@
 # Real-Time Market Microstructure Analyzer
 
+[![DOI badge for the Real-Time Market Microstructure Analyzer project with DOI number 10.5281/zenodo.22057358, displayed as a Zenodo badge reading DOI 10.5281/zenodo.22057358 on a simple light background](https://zenodo.org/badge/DOI/10.5281/zenodo.22057358.svg)](https://doi.org/10.5281/zenodo.22057358)
+
 A research-grade platform for computing, backtesting, and visualising market
 microstructure signals for Indian equities.
 
@@ -22,18 +24,35 @@ simulators, and load-testing utilities.
 
 ## Contents
 
-- [Highlights](#highlights)
-- [Quick start](#quick-start)
-- [System architecture](#system-architecture)
-- [Analytics](#analytics)
-- [Dashboard and API](#dashboard-and-api)
-- [Research and simulation](#research-and-simulation)
-- [Testing and reproducibility](#testing-and-reproducibility)
-- [Performance](#performance)
-- [Live-data integration](#live-data-integration)
-- [Project structure](#project-structure)
-- [Methodological notes](#methodological-notes)
-- [References](#references)
+- [Real-Time Market Microstructure Analyzer](#real-time-market-microstructure-analyzer)
+  - [Contents](#contents)
+  - [Highlights](#highlights)
+  - [Quick start](#quick-start)
+    - [Prerequisites](#prerequisites)
+    - [1. Start the backend](#1-start-the-backend)
+    - [2. Start the dashboard](#2-start-the-dashboard)
+    - [3. Exercise the research workflow](#3-exercise-the-research-workflow)
+    - [4. Run the offline demo](#4-run-the-offline-demo)
+  - [System architecture](#system-architecture)
+  - [Analytics](#analytics)
+    - [Spread analytics](#spread-analytics)
+    - [Order-flow imbalance](#order-flow-imbalance)
+    - [Price impact and liquidity](#price-impact-and-liquidity)
+    - [VWAP and volume](#vwap-and-volume)
+    - [Anomaly detection](#anomaly-detection)
+  - [Dashboard and API](#dashboard-and-api)
+  - [Research and simulation](#research-and-simulation)
+    - [Research notebooks](#research-notebooks)
+    - [OFI signal backtester](#ofi-signal-backtester)
+    - [Execution simulator](#execution-simulator)
+    - [WebSocket stress test](#websocket-stress-test)
+  - [Testing and reproducibility](#testing-and-reproducibility)
+  - [Performance](#performance)
+  - [Live-data integration](#live-data-integration)
+  - [Project structure](#project-structure)
+  - [Methodological notes](#methodological-notes)
+  - [References](#references)
+  - [Disclaimer](#disclaimer)
 
 ## Highlights
 
