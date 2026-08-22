@@ -9,9 +9,16 @@ displays them in a React dashboard. It includes a synthetic market-data source,
 an offline replay demo, research notebooks, a signal backtester, execution
 simulators, and load-testing utilities.
 
-> **Project status:** The simulation and research workflow is usable today.
-> Angel One SmartAPI integration is experimental and still contains implementation
-> TODOs. The offline demo replays embedded data; it is not a live exchange feed.
+> **Project status:** The deterministic synthetic-data workflow, analytics
+> engine, profiler, backtester, execution simulator, API, and dashboard are
+> implemented. Backend tests, reproducibility smoke checks, and the frontend
+> production build run in continuous integration. Angel One SmartAPI integration
+> remains an explicit stub. The offline demo replays embedded data; it is not a
+> live exchange feed.
+
+> **Legacy report notice:** The included PDF reports predate the current repair
+> and contain outdated implementation and benchmark statements. See
+> [`docs/VALIDATION.md`](docs/VALIDATION.md) for the current validation boundary.
 
 ## Contents
 
@@ -21,6 +28,7 @@ simulators, and load-testing utilities.
 - [Analytics](#analytics)
 - [Dashboard and API](#dashboard-and-api)
 - [Research and simulation](#research-and-simulation)
+- [Testing and reproducibility](#testing-and-reproducibility)
 - [Performance](#performance)
 - [Live-data integration](#live-data-integration)
 - [Project structure](#project-structure)
@@ -30,7 +38,7 @@ simulators, and load-testing utilities.
 ## Highlights
 
 - Five-level order-book ingestion at a configurable tick rate
-- 22 derived metrics across nine analytics modules
+- 18 derived fields, plus identifiers and market fields, across nine modules
 - Rolling order-flow, liquidity, price-impact, VWAP, and volume signals
 - FastAPI endpoints and separate WebSocket streams for market data, analytics,
   and alerts
@@ -77,7 +85,22 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-### 3. Run the offline demo
+### 3. Exercise the research workflow
+
+Generate deterministic sample data before running the backtester or execution
+simulator:
+
+```bash
+python scripts/generate_sample_data.py --ticks-per-symbol 1000 --seed 42
+python run_backtest.py
+python run_execution_sim.py
+python run_profiler.py --ticks 15000 --seed 42
+```
+
+Generated CSV and JSON files are excluded from Git because they can be
+recreated from the recorded seed.
+
+### 4. Run the offline demo
 
 Open `demo/index.html` directly in a browser. The demo is self-contained and
 does not require the Python backend or a brokerage connection.
@@ -136,7 +159,7 @@ rolling windows or online aggregates between updates.
 | Kyle's lambda | Rolling price-impact coefficient, R², and t-statistic | `backend/analytics/kyle_lambda.py` |
 | Amihud illiquidity | Rolling absolute return per unit of traded value | `backend/analytics/amihud.py` |
 | Roll spread | Implied spread derived from serial covariance in price changes | `backend/analytics/roll_spread.py` |
-| Price-discovery diagnostic | Experimental Hasbrouck-inspired trade and quote innovation decomposition | `backend/analytics/hasbrouck.py` |
+| Trade/quote variance diagnostic | Descriptive single-venue trade-return and quote-return variance shares | `backend/analytics/hasbrouck.py` |
 | Session VWAP | Online VWAP and volume-weighted deviation bands | `backend/analytics/vwap.py` |
 | Volume analytics | Tick-rule classification, price-bucketed volume, and cumulative delta | `backend/analytics/volume.py` |
 | Anomaly detection | Rolling z-scores for spread, volume, and OFI | `backend/analytics/anomaly_detector.py` |
@@ -206,18 +229,22 @@ correlations, and OFI autocorrelation.
 `notebooks/latency_report.ipynb` analyses total and per-module computation
 latency, percentile distributions, time trends, and symbol-level variation.
 
-Generate fresh profiling data before running the notebooks:
+Install the optional research dependencies and generate fresh data before
+running the notebooks:
 
 ```bash
-python run_profiler.py
+pip install -r requirements-research.txt
+python scripts/generate_sample_data.py --ticks-per-symbol 1000 --seed 42
+python run_profiler.py --ticks 15000 --seed 42
 ```
 
 ### OFI signal backtester
 
-The backtester implements a configurable z-score strategy around the OFI
-signal. Parameters include entry and exit thresholds, lookback window, and
-transaction costs. Output includes trade-level P&L, Sharpe ratio, maximum
-drawdown, profit factor, and win rate.
+The backtester implements a configurable directional z-score strategy around
+the OFI signal. Parameters include entry and exit thresholds, lookback window,
+transaction costs, position size, and initial capital. Output includes
+trade-level P&L, an unannualised trade-return ratio, maximum drawdown, profit
+factor, and win rate.
 
 ```bash
 python run_backtest.py
@@ -228,9 +255,12 @@ the research pipeline, not evidence of a deployable trading edge.
 
 ### Execution simulator
 
-The execution simulator compares TWAP and VWAP schedules while walking the
-available ask levels for each child order. It reports arrival slippage,
-implementation shortfall, and fill rates across configurable order sizes.
+The execution simulator compares TWAP and an ex-post replay VWAP schedule while
+walking the available book levels for each child order. It reports arrival and
+VWAP slippage, implementation shortfall, last-fill slippage, and fill quantities
+across configurable order sizes. Because the replay VWAP schedule observes the
+full window's volume, it is a diagnostic benchmark rather than a deployable
+forecasting algorithm.
 
 ```bash
 python run_execution_sim.py
@@ -245,23 +275,42 @@ success, throughput, and first-message latency.
 python tests/stress_test.py --clients 50 --duration 15
 ```
 
-## Performance
+## Testing and reproducibility
 
-The current project reports approximately **1.2 ms of analytics computation per
-tick** against a 200 ms interval at five updates per second. Treat this as an
-indicative development benchmark, not a universal service-level guarantee.
+Install the development dependencies and run the automated checks:
+
+```bash
+pip install -r requirements-dev.txt
+ruff check backend scripts run_backtest.py run_execution_sim.py run_profiler.py tests
+pytest --cov=backend --cov-report=term-missing
+```
+
+For a lockfile-based environment, install `uv` and run
+`uv sync --locked --extra dev` instead of the first command.
+
+GitHub Actions runs linting, backend tests on Python 3.11 and 3.12, coverage,
+sample-data generation, a profiler smoke run, and a production frontend build
+on every push and pull request.
+
+The synthetic generator uses a fixed clock and a local seeded random-number
+generator. The same command and seed therefore produce the same snapshots and
+analytics records.
+
+## Performance
 
 Latency depends on hardware, Python version, enabled modules, symbol count,
 window sizes, data source, storage configuration, and concurrent clients. For a
 reproducible comparison, run:
 
 ```bash
-python run_profiler.py
+python run_profiler.py --ticks 15000 --seed 42
 ```
 
-When publishing benchmark results, record at least the processor, operating
-system, Python version, number of symbols, number of ticks, enabled modules,
-warm-up period, and P50/P95/P99 latency.
+The repository does not advertise a fixed latency number. When publishing a
+result, record at least the processor, operating system, Python version, number
+of symbols, number of ticks, seed, enabled modules, warm-up period, and
+P50/P95/P99 latency. A profiler run measures computation in the current process;
+it is not an exchange-to-screen latency measurement.
 
 ## Live-data integration
 
@@ -312,6 +361,9 @@ quantproject2/
 ├── demo/
 │   └── index.html
 ├── frontend/
+├── scripts/
+│   ├── fetch_historical.py
+│   └── generate_sample_data.py
 ├── notebooks/
 │   ├── latency_report.ipynb
 │   └── microstructure_analysis.ipynb
@@ -320,7 +372,10 @@ quantproject2/
 ├── run_backtest.py
 ├── run_execution_sim.py
 ├── run_profiler.py
-└── requirements.txt
+├── requirements.txt
+├── requirements-dev.txt
+├── requirements-live.txt
+└── requirements-research.txt
 ```
 
 ## Methodological notes
@@ -335,10 +390,15 @@ quantproject2/
   when reporting results.
 - Rolling regressions and z-scores require a warm-up period. Early-window output
   should not be compared directly with fully populated windows.
-- `hasbrouck.py` is described here as a Hasbrouck-inspired diagnostic. Classical
-  information-share estimation normally uses cointegrated price series across
-  venues and a VECM-based decomposition; the present module should not be
-  represented as that estimator unless it implements those requirements.
+- `hasbrouck.py` contains a descriptively named trade/quote variance diagnostic.
+  It is not a Hasbrouck information-share estimator. Classical information share
+  normally uses cointegrated price series across venues and a VECM innovation
+  decomposition.
+- The Amihud and Kyle calculations are tick-level adaptations. They should not
+  be compared directly with estimates built at different sampling frequencies.
+- Last-fill slippage in the execution simulator is not causal market impact;
+  the replay does not alter subsequent book states in response to simulated
+  orders.
 - Synthetic-data backtests validate software behaviour, not market
   predictability. Any investment conclusion requires correctly licensed,
   timestamped historical data and out-of-sample testing.

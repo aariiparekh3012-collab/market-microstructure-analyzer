@@ -20,14 +20,16 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  const book = useJsonWebSocket(`ws://${location.hostname}:8000/ws/orderbook/${symbol}`, { historyLimit: 1 });
-  const metrics = useJsonWebSocket(`ws://${location.hostname}:8000/ws/analytics/${symbol}`, { historyLimit: 300 });
-  const alerts = useJsonWebSocket(`ws://${location.hostname}:8000/ws/alerts`, { historyLimit: 200 });
+  const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsHost = import.meta.env.DEV ? `${location.hostname}:8000` : location.host;
+  const book = useJsonWebSocket(`${wsProtocol}://${wsHost}/ws/orderbook/${symbol}`, { historyLimit: 1 });
+  const metrics = useJsonWebSocket(`${wsProtocol}://${wsHost}/ws/analytics/${symbol}`, { historyLimit: 300 });
+  const alerts = useJsonWebSocket(`${wsProtocol}://${wsHost}/ws/alerts`, { historyLimit: 200 });
 
-  const spreadPts   = useMemo(() => metrics.history.map((m) => ({ t: m.ts, v: m.spread })), [metrics.history]);
-  const ofiPts      = useMemo(() => metrics.history.map((m) => ({ t: m.ts, v: m.ofi_60s })), [metrics.history]);
-  const pricePts    = useMemo(() => metrics.history.map((m) => ({ t: m.ts, v: m.ltp })), [metrics.history]);
-  const vwapPts     = useMemo(() => metrics.history.map((m) => ({ t: m.ts, v: m.vwap })).filter((p) => p.v != null), [metrics.history]);
+  const spreadPts   = useMemo(() => metrics.history.map((m) => ({ t: m.timestamp, v: m.spread })), [metrics.history]);
+  const ofiPts      = useMemo(() => metrics.history.map((m) => ({ t: m.timestamp, v: m.ofi_60s })), [metrics.history]);
+  const pricePts    = useMemo(() => metrics.history.map((m) => ({ t: m.timestamp, v: m.ltp })), [metrics.history]);
+  const vwapPts     = useMemo(() => metrics.history.map((m) => ({ t: m.timestamp, v: m.vwap })).filter((p) => p.v != null), [metrics.history]);
 
   const status = book.status;
 

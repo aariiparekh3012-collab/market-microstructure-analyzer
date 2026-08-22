@@ -15,10 +15,8 @@ Reference:
 
 from __future__ import annotations
 
-import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
 from backend.models import OrderBookSnapshot
 
@@ -42,16 +40,18 @@ class AmihudEstimator:
 
     def __init__(self, window: int = 300) -> None:
         self._window = window
-        self._prev_mid: Optional[float] = None
+        self._prev_mid: float | None = None
         self._ratios: deque[float] = deque(maxlen=window)
         self._sum: float = 0.0
 
-    def update(self, snap: OrderBookSnapshot) -> Optional[AmihudResult]:
+    def update(self, snap: OrderBookSnapshot) -> AmihudResult | None:
         """Process a tick and return the Amihud illiquidity ratio.
 
         Returns None until the second observation (need a return).
         """
         mid = snap.midprice
+        if mid is None or mid <= 0 or snap.ltp is None or snap.ltq is None:
+            return None
 
         if self._prev_mid is None or self._prev_mid == 0:
             self._prev_mid = mid
@@ -63,7 +63,7 @@ class AmihudEstimator:
 
         # Dollar volume for this tick
         dollar_vol = snap.ltp * snap.ltq
-        if dollar_vol == 0:
+        if dollar_vol <= 0:
             return None
 
         # Amihud ratio: |return| / dollar_volume  (×10^6 for scaling)

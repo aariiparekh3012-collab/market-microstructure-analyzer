@@ -6,12 +6,11 @@ that walk the order book and measure slippage / market impact.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import List, Literal, Tuple
+from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import pandas as pd
-
 
 # ── Result container ────────────────────────────────────────────────
 
@@ -19,14 +18,23 @@ import pandas as pd
 class ExecutionResult:
     """Aggregated execution statistics for one simulation run."""
 
-    fills: List[Tuple[int, float, float, float]]  # (tick_idx, fill_qty, fill_price, slippage_bps)
+    fills: list[tuple[int, float, float, float]]  # (tick_idx, fill_qty, fill_price, slippage_bps)
     avg_fill_price: float
     arrival_price: float          # midprice at t=0
     vwap_price: float             # session VWAP across all ticks
     total_slippage_bps: float     # vs arrival price
     vwap_slippage_bps: float      # vs session VWAP
     implementation_shortfall: float  # (arrival - avg_fill) in bps, sign-aware
-    market_impact_bps: float
+    last_fill_slippage_bps: float
+
+    @property
+    def market_impact_bps(self) -> float:
+        """Deprecated alias retained for compatibility.
+
+        The simulator does not model causal market impact; it measures the last
+        fill's slippage relative to arrival.
+        """
+        return self.last_fill_slippage_bps
 
 
 # ── Book-walking helper ─────────────────────────────────────────────
@@ -35,16 +43,13 @@ def _walk_book(
     tick: pd.Series,
     qty: float,
     side: Literal["buy", "sell"],
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Walk one side of the order-book for *qty* shares.
 
     Returns (filled_qty, vwap_fill_price).
     If the book cannot fully fill *qty*, we fill as much as possible.
     """
-    if side == "buy":
-        prefix = "ask"
-    else:
-        prefix = "bid"
+    prefix = "ask" if side == "buy" else "bid"
 
     total_filled = 0.0
     total_cost = 0.0
@@ -73,10 +78,11 @@ def _midprice(tick: pd.Series) -> float:
 
 def _session_vwap(ticks: pd.DataFrame) -> float:
     """Volume-weighted average price across all ticks using ltp & ltq."""
-    if "ltq" in ticks.columns:
-        qty = ticks["ltq"]
-    else:
-        qty = ticks["volume"].diff().clip(lower=1).fillna(1)
+    qty = (
+        ticks["ltq"]
+        if "ltq" in ticks.columns
+        else ticks["volume"].diff().clip(lower=1).fillna(1)
+    )
     total = (ticks["ltp"] * qty).sum()
     vol = qty.sum()
     if vol == 0:
@@ -100,20 +106,21 @@ class TWAPExecutor:
         self.num_slices = num_slices
         self.side = side
 
-    def schedule(self, n_ticks: int) -> List[Tuple[int, float]]:
+    def schedule(self, n_ticks: int) -> list[tuple[int, float]]:
         """Return [(tick_index, child_qty), …]."""
-        base_qty = self.target_qty / self.num_slices
+        if n_ticks <= 0 or self.num_slices <= 0 or self.target_qty <= 0:
+            return []
         # If fewer ticks than slices, compress into available ticks
         effective_slices = min(self.num_slices, n_ticks)
+        base_qty = self.target_qty / effective_slices
         indices = np.linspace(0, n_ticks - 1, effective_slices, dtype=int)
 
-        schedule: List[Tuple[int, float]] = []
+        schedule: list[tuple[int, float]] = []
         remaining = self.target_qty
         for i, idx in enumerate(indices):
-            if i == len(indices) - 1:
-                child_qty = remaining  # last slice gets residual
-            else:
-                child_qty = math.floor(base_qty)
+            child_qty = (
+                remaining if i == len(indices) - 1 else math.floor(base_qty)
+            )
             child_qty = min(child_qty, remaining)
             if child_qty > 0:
                 schedule.append((int(idx), child_qty))
@@ -135,8 +142,10 @@ class VWAPExecutor:
         self.num_slices = num_slices
         self.side = side
 
-    def schedule(self, n_ticks: int, volumes: np.ndarray) -> List[Tuple[int, float]]:
+    def schedule(self, n_ticks: int, volumes: np.ndarray) -> list[tuple[int, float]]:
         """Return [(tick_index, child_qty), …] weighted by volume buckets."""
+        if n_ticks <= 0 or self.num_slices <= 0 or self.target_qty <= 0:
+            return []
         effective_slices = min(self.num_slices, n_ticks)
         indices = np.linspace(0, n_ticks - 1, effective_slices, dtype=int)
 
@@ -158,7 +167,7 @@ class VWAPExecutor:
         else:
             weights = bucket_vols / total_vol
 
-        schedule: List[Tuple[int, float]] = []
+        schedule: list[tuple[int, float]] = []
         remaining = self.target_qty
         for i, idx in enumerate(indices):
             if i == len(indices) - 1:
@@ -194,6 +203,8 @@ def simulate(
     """
     ticks_df = ticks_df.reset_index(drop=True)
     n_ticks = len(ticks_df)
+    if n_ticks == 0:
+        raise ValueError("execution simulation requires at least one tick")
 
     # Arrival price = midprice of first tick
     arrival = _midprice(ticks_df.iloc[0])
@@ -216,7 +227,7 @@ def simulate(
     side = executor.side
 
     # Execute each child order
-    fills: List[Tuple[int, float, float, float]] = []
+    fills: list[tuple[int, float, float, float]] = []
     total_filled = 0.0
     total_cost = 0.0
 
@@ -245,7 +256,7 @@ def simulate(
             total_slippage_bps=0.0,
             vwap_slippage_bps=0.0,
             implementation_shortfall=0.0,
-            market_impact_bps=0.0,
+            last_fill_slippage_bps=0.0,
         )
 
     avg_fill = total_cost / total_filled
@@ -274,5 +285,5 @@ def simulate(
         total_slippage_bps=round(total_slip_bps, 4),
         vwap_slippage_bps=round(vwap_slip_bps, 4),
         implementation_shortfall=round(impl_shortfall, 4),
-        market_impact_bps=round(impact_bps, 4),
+        last_fill_slippage_bps=round(impact_bps, 4),
     )

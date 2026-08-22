@@ -6,15 +6,15 @@ Usage:
     cd /root/mma && python run_backtest.py
 """
 
-import sys
 import os
+import sys
 
 # Ensure project root is importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pandas as pd
-from backend.analytics.backtester import OFIStrategy, run_backtest
 
+from backend.analytics.backtester import OFIStrategy, run_backtest
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 METRICS_PATH = os.path.join(DATA_DIR, "metrics.csv")
@@ -26,6 +26,10 @@ def main():
     # ------------------------------------------------------------------
     # Load data
     # ------------------------------------------------------------------
+    if not os.path.exists(METRICS_PATH):
+        raise SystemExit(
+            "Missing data/metrics.csv. Run: python scripts/generate_sample_data.py"
+        )
     print(f"Loading data from {METRICS_PATH} ...")
     df = pd.read_csv(METRICS_PATH)
     symbols = df["symbol"].unique().tolist()
@@ -74,20 +78,11 @@ def main():
     # Print summary table
     # ------------------------------------------------------------------
     summary_df = pd.DataFrame(summary_rows)
-    fmt = {
-        "win_rate": "{:.2%}".format,
-        "sharpe": "{:.3f}".format,
-        "max_dd": "{:.2f}".format,
-        "max_dd_pct": "{:.2f}%".format,
-        "pnl": "{:.2f}".format,
-        "profit_factor": "{:.3f}".format,
-        "avg_pnl": "{:.4f}".format,
-    }
     print("=" * 100)
     print("BACKTEST RESULTS")
     print("=" * 100)
 
-    header = f"{'Symbol':<12} {'Trades':>7} {'Win Rate':>10} {'Sharpe':>10} {'Max DD':>12} {'Max DD%':>10} {'PnL':>14} {'PF':>8}"
+    header = f"{'Symbol':<12} {'Trades':>7} {'Win Rate':>10} {'Trade SR':>10} {'Max DD':>12} {'Max DD%':>10} {'PnL':>14} {'PF':>8}"
     print(header)
     print("-" * 100)
     for _, row in summary_df.iterrows():

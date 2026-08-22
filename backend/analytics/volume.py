@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Literal
 
 from ..models import OrderBookSnapshot
 
@@ -10,18 +9,24 @@ from ..models import OrderBookSnapshot
 class TickRuleClassifier:
     def __init__(self) -> None:
         self._prev_price: float | None = None
-        self._prev_side: Literal["buy", "sell", "unknown"] = "unknown"
+        self._prev_sign: int = 0
 
-    def classify(self, price: float) -> Literal["buy", "sell", "unknown"]:
+    def classify(self, price: float | None) -> int:
+        """Return +1 for buyer-initiated, -1 for seller-initiated, else 0.
+
+        Unchanged prices inherit the most recent non-zero classification.
+        """
+        if price is None:
+            return 0
         if self._prev_price is None:
             self._prev_price = price
-            return "unknown"
+            return 0
         if price > self._prev_price:
-            self._prev_side = "buy"
+            self._prev_sign = 1
         elif price < self._prev_price:
-            self._prev_side = "sell"
+            self._prev_sign = -1
         self._prev_price = price
-        return self._prev_side
+        return self._prev_sign
 
 
 class VolumeProfile:
@@ -44,9 +49,9 @@ class VolumeProfile:
             return
         side = self._clf.classify(s.ltp)
         self._profile[self._bucket(s.ltp)] += dvol
-        if side == "buy":
+        if side > 0:
             self._delta += dvol
-        elif side == "sell":
+        elif side < 0:
             self._delta -= dvol
 
     @property
@@ -56,3 +61,8 @@ class VolumeProfile:
     @property
     def cumulative_delta(self) -> int:
         return self._delta
+
+    @property
+    def cum_delta(self) -> int:
+        """Backward-compatible alias for ``cumulative_delta``."""
+        return self.cumulative_delta

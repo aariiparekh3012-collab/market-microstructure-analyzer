@@ -25,6 +25,8 @@ data/ticks/**
 data/historical/**
 !data/ticks/.gitkeep
 !data/historical/.gitkeep
+data/*.csv
+data/*.json
 
 # Frontend
 node_modules/

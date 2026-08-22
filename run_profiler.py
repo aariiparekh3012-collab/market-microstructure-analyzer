@@ -1,24 +1,30 @@
 """Run the latency profiler and generate a performance report."""
 
+import argparse
 import asyncio
-import sys
-import os
-import json
 import csv
+import json
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from backend.ingestion.mock_source import MockSource
 from backend.analytics.profiler import ProfiledEngine
+from backend.ingestion.mock_source import MockSource
 
 
-async def main():
+async def main(args):
     symbols = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK"]
-    source = MockSource(symbols=symbols, max_ticks=3000, realtime=False)
+    source = MockSource(
+        symbols=symbols,
+        max_ticks=args.ticks,
+        realtime=False,
+        seed=args.seed,
+    )
     engine = ProfiledEngine()
     total = 0
 
-    print("Running profiler (15,000 ticks, no sleep)...")
+    print(f"Running profiler ({args.ticks:,} ticks, no sleep, seed={args.seed})...")
 
     async for snap in source.stream():
         engine.process(snap)
@@ -27,15 +33,22 @@ async def main():
     print(f"Processed {total} ticks\n")
 
     # Save raw timings
-    os.makedirs("data", exist_ok=True)
-    with open("data/latency_timings.csv", "w", newline="") as f:
+    os.makedirs(args.output, exist_ok=True)
+    timings_path = os.path.join(args.output, "latency_timings.csv")
+    summary_path = os.path.join(args.output, "latency_summary.json")
+    with open(timings_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["tick_id", "symbol", "total_us", "spread_us",
-                         "ofi_us", "vwap_us", "volume_us", "anomaly_us", "overhead_us"])
+        writer.writerow([
+            "tick_id", "symbol", "total_us", "spread_us", "ofi_us",
+            "vwap_us", "volume_us", "kyle_us", "amihud_us", "roll_us",
+            "trade_quote_us", "anomaly_us", "overhead_us",
+        ])
         for t in engine.timings:
             writer.writerow([t.tick_id, t.symbol, f"{t.total_us:.2f}",
                              f"{t.spread_us:.2f}", f"{t.ofi_us:.2f}",
                              f"{t.vwap_us:.2f}", f"{t.volume_us:.2f}",
+                             f"{t.kyle_us:.2f}", f"{t.amihud_us:.2f}",
+                             f"{t.roll_us:.2f}", f"{t.trade_quote_us:.2f}",
                              f"{t.anomaly_us:.2f}", f"{t.overhead_us:.2f}"])
 
     # Print summary
@@ -53,9 +66,13 @@ async def main():
     print(f"  {'':22} {'(μs)':>8} {'(μs)':>8} {'(μs)':>8} {'(μs)':>8} {'(μs)':>8}")
     print(f"{'─' * 65}")
 
-    for name, label in [("spread", "Spread"), ("ofi", "OFI"),
-                         ("vwap", "VWAP"), ("volume", "Volume"),
-                         ("anomaly_detection", "Anomaly Detection")]:
+    for name, label in [
+        ("spread", "Spread"), ("ofi", "OFI"), ("vwap", "VWAP"),
+        ("volume", "Volume"), ("kyle", "Kyle Lambda"),
+        ("amihud", "Amihud"), ("roll", "Roll Spread"),
+        ("trade_quote", "Trade/Quote Var"),
+        ("anomaly_detection", "Anomaly Detection"),
+    ]:
         ms = s["modules"][name]
         pct = s["mean_breakdown_pct"][name]
         print(f"  {label:<22} {ms['mean_us']:>7.1f} {ms['median_us']:>7.1f} "
@@ -83,11 +100,18 @@ async def main():
     print(f"\n{'=' * 65}")
 
     # Save summary as JSON
-    with open("data/latency_summary.json", "w") as f:
+    with open(summary_path, "w") as f:
         json.dump(s, f, indent=2)
 
-    print("\nSaved: data/latency_timings.csv, data/latency_summary.json")
+    print(f"\nSaved: {timings_path}, {summary_path}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ticks", type=int, default=15_000)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--output", default="data")
+    parsed = parser.parse_args()
+    if parsed.ticks <= 0:
+        parser.error("--ticks must be positive")
+    asyncio.run(main(parsed))

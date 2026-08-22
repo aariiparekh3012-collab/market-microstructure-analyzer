@@ -21,7 +21,6 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
 from backend.models import OrderBookSnapshot
 
@@ -44,8 +43,8 @@ class RollSpreadEstimator:
 
     def __init__(self, window: int = 200) -> None:
         self._window = window
-        self._prev_price: Optional[float] = None
-        self._prev_dp: Optional[float] = None
+        self._prev_price: float | None = None
+        self._prev_dp: float | None = None
 
         # Store consecutive (ΔP_t, ΔP_{t-1}) pairs
         self._dp_curr: deque[float] = deque(maxlen=window)
@@ -56,12 +55,14 @@ class RollSpreadEstimator:
         self._sy: float = 0.0    # Σ dp_curr
         self._sxy: float = 0.0   # Σ dp_prev * dp_curr
 
-    def update(self, snap: OrderBookSnapshot) -> Optional[RollSpreadResult]:
+    def update(self, snap: OrderBookSnapshot) -> RollSpreadResult | None:
         """Process a tick and return the implied spread estimate.
 
         Returns None until at least 30 pairs are collected.
         """
         price = snap.ltp
+        if price is None or price <= 0:
+            return None
 
         if self._prev_price is None:
             self._prev_price = price
@@ -98,14 +99,11 @@ class RollSpreadEstimator:
         cov = self._sxy / n - (self._sx / n) * (self._sy / n)
 
         # Roll's formula: spread = 2 * sqrt(-cov)  [only if cov < 0]
-        if cov < 0:
-            implied = 2.0 * math.sqrt(-cov)
-        else:
-            implied = 0.0
+        implied = 2.0 * math.sqrt(-cov) if cov < 0 else 0.0
 
         # Convert to bps using midprice
         mid = snap.midprice
-        bps = implied / mid * 10_000 if mid > 0 else 0.0
+        bps = implied / mid * 10_000 if mid is not None and mid > 0 else 0.0
 
         return RollSpreadResult(
             implied_spread=implied,

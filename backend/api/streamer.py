@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
+from contextlib import suppress
 from dataclasses import asdict
 from typing import Any
 
@@ -36,10 +37,8 @@ class Streamer:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         self.tick_store.flush()
 
     def subscribe_book(self, symbol: str) -> asyncio.Queue:
@@ -110,14 +109,10 @@ def _broadcast(subs: set[asyncio.Queue], payload: Any) -> None:
     msg = json.dumps(payload, default=str)
     for q in list(subs):
         if q.full():
-            try:
+            with suppress(Exception):
                 q.get_nowait()
-            except Exception:
-                pass
-        try:
+        with suppress(Exception):
             q.put_nowait(msg)
-        except Exception:
-            pass
 
 
 streamer = Streamer()

@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
-from backend.models import Anomaly, OrderBookSnapshot
-from backend.analytics.spread import quoted_spread, relative_spread, weighted_spread
-from backend.analytics.order_flow import OFICalculator
-from backend.analytics.vwap import SessionVWAP
-from backend.analytics.volume import VolumeProfile
-from backend.analytics.anomaly_detector import AnomalyDetector
-from backend.analytics.kyle_lambda import KyleLambdaEstimator
 from backend.analytics.amihud import AmihudEstimator
+from backend.analytics.anomaly_detector import AnomalyDetector
+from backend.analytics.hasbrouck import TradeQuoteVarianceEstimator
+from backend.analytics.kyle_lambda import KyleLambdaEstimator
+from backend.analytics.order_flow import OFICalculator
 from backend.analytics.roll_spread import RollSpreadEstimator
-from backend.analytics.hasbrouck import HasbrouckEstimator
+from backend.analytics.spread import quoted_spread, relative_spread, weighted_spread
+from backend.analytics.volume import VolumeProfile
+from backend.analytics.vwap import SessionVWAP
+from backend.models import Anomaly, OrderBookSnapshot
 
 
 class SymbolAnalytics:
@@ -23,19 +23,24 @@ class SymbolAnalytics:
         self.ofi = OFICalculator()
         self.vwap = SessionVWAP()
         self.volume_profile = VolumeProfile(bucket_size=0.5)
-        self.anomaly_detector = AnomalyDetector(z_threshold=3.0, window=300)
+        self.anomaly_detector = AnomalyDetector(
+            spread_window=300,
+            volume_window=300,
+            ofi_window=300,
+            z_threshold=3.0,
+        )
         # Advanced microstructure estimators
         self.kyle_lambda = KyleLambdaEstimator(window=300)
         self.amihud = AmihudEstimator(window=300)
         self.roll_spread = RollSpreadEstimator(window=200)
-        self.hasbrouck = HasbrouckEstimator(window=500)
+        self.trade_quote_variance = TradeQuoteVarianceEstimator(window=500)
 
 
 class Engine:
     """Process order-book snapshots and return metrics + anomalies."""
 
     def __init__(self) -> None:
-        self._analytics: Dict[str, SymbolAnalytics] = {}
+        self._analytics: dict[str, SymbolAnalytics] = {}
 
     def _get(self, symbol: str) -> SymbolAnalytics:
         if symbol not in self._analytics:
@@ -44,7 +49,7 @@ class Engine:
 
     def process(
         self, snap: OrderBookSnapshot
-    ) -> Tuple[Dict[str, Any], List[Anomaly]]:
+    ) -> tuple[dict[str, Any], list[Anomaly]]:
         """Process a single snapshot.
 
         Returns:
@@ -59,7 +64,7 @@ class Engine:
 
         # --- OFI ---
         ofi_event = sa.ofi.update(snap)
-        ofi_rolling = sa.ofi.rolling(snap.timestamp)
+        ofi_rolling = sa.ofi.rolling(snap.ts)
 
         # --- VWAP ---
         sa.vwap.update(snap)
@@ -69,7 +74,7 @@ class Engine:
 
         # --- Volume profile ---
         sa.volume_profile.update(snap)
-        cum_delta = sa.volume_profile.cum_delta
+        cum_delta = sa.volume_profile.cumulative_delta
 
         # --- Kyle's Lambda (price impact) ---
         kyle_res = sa.kyle_lambda.update(snap)
@@ -86,17 +91,21 @@ class Engine:
         roll_spread_val = roll_res.implied_spread_bps if roll_res else None
         roll_cov = roll_res.serial_cov if roll_res else None
 
-        # --- Hasbrouck Information Share ---
-        hasb_res = sa.hasbrouck.update(snap)
-        trade_info_share = hasb_res.trade_info_share if hasb_res else None
-        perm_impact = hasb_res.permanent_impact_bps if hasb_res else None
+        # --- Descriptive trade/quote variance diagnostic ---
+        variance_res = sa.trade_quote_variance.update(snap)
+        trade_variance_share = (
+            variance_res.trade_variance_share if variance_res else None
+        )
+        avg_signed_return = (
+            variance_res.avg_signed_return_bps if variance_res else None
+        )
 
         # --- Anomaly detection ---
         anomalies = sa.anomaly_detector.check(snap, ofi_event)
 
-        metrics: Dict[str, Any] = {
+        metrics: dict[str, Any] = {
             "symbol": snap.symbol,
-            "timestamp": snap.timestamp.isoformat(),
+            "timestamp": snap.ts.isoformat(),
             "ltp": snap.ltp,
             "midprice": snap.midprice,
             "spread": qs,
@@ -116,8 +125,13 @@ class Engine:
             "amihud_illiq": amihud_illiq,
             "roll_spread_bps": roll_spread_val,
             "roll_serial_cov": roll_cov,
-            "trade_info_share": trade_info_share,
-            "permanent_impact_bps": perm_impact,
+            "trade_variance_share": trade_variance_share,
+            "avg_signed_trade_return_bps": avg_signed_return,
         }
 
         return metrics, anomalies
+
+    def volume_profile(self, symbol: str) -> dict[float, int]:
+        """Return the current volume profile without creating symbol state."""
+        analytics = self._analytics.get(symbol)
+        return analytics.volume_profile.profile if analytics else {}

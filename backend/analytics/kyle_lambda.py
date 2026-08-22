@@ -18,10 +18,9 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
-from backend.models import OrderBookSnapshot
 from backend.analytics.volume import TickRuleClassifier
+from backend.models import OrderBookSnapshot
 
 
 @dataclass(slots=True)
@@ -37,14 +36,14 @@ class KyleLambdaEstimator:
     """Rolling Kyle's Lambda via OLS regression.
 
     Maintains a sliding window of (ΔP, SignedVolume) pairs and
-    re-estimates λ on each tick using Welford-style running sums
+    re-estimates λ on each tick using rolling sufficient statistics
     for O(1) per-tick updates.
     """
 
     def __init__(self, window: int = 300) -> None:
         self._window = window
         self._classifier = TickRuleClassifier()
-        self._prev_mid: Optional[float] = None
+        self._prev_mid: float | None = None
 
         # Circular buffers for ΔP and signed volume
         self._dp: deque[float] = deque(maxlen=window)
@@ -77,13 +76,16 @@ class KyleLambdaEstimator:
         self._sx2 += x * x
         self._sy2 += y * y
 
-    def update(self, snap: OrderBookSnapshot) -> Optional[KyleLambdaResult]:
+    def update(self, snap: OrderBookSnapshot) -> KyleLambdaResult | None:
         """Process a tick and return the current Kyle's Lambda estimate.
 
         Returns None until at least 30 observations are collected.
         """
-        sign = self._classifier.classify(snap)
         mid = snap.midprice
+        if mid is None or mid <= 0 or snap.ltp is None or snap.ltq is None:
+            return None
+
+        sign = self._classifier.classify(snap.ltp)
 
         if self._prev_mid is None:
             self._prev_mid = mid
@@ -91,10 +93,10 @@ class KyleLambdaEstimator:
 
         # ΔP in basis points relative to previous mid
         dp = (mid - self._prev_mid) / self._prev_mid * 10_000 if self._prev_mid else 0.0
-        signed_vol = sign * snap.ltq
+        signed_vol = float(sign * snap.ltq)
         self._prev_mid = mid
 
-        self._add(float(signed_vol), dp)
+        self._add(signed_vol, dp)
 
         n = len(self._dp)
         if n < 30:
@@ -112,7 +114,7 @@ class KyleLambdaEstimator:
         # R² and t-statistic
         ss_tot = self._sy2 - self._sy ** 2 / n
         ss_res = 0.0
-        for x_i, y_i in zip(self._sv, self._dp):
+        for x_i, y_i in zip(self._sv, self._dp, strict=True):
             residual = y_i - (alpha + lam * x_i)
             ss_res += residual * residual
 

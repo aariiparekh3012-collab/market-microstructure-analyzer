@@ -14,8 +14,8 @@ Reference: https://smartapi.angelbroking.com/docs/WebSocket2
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 from ..config import settings
 from ..models import BookLevel, OrderBookSnapshot
@@ -59,7 +59,7 @@ def _demo_normalize(raw: dict, symbol: str) -> OrderBookSnapshot:
         ]
     return OrderBookSnapshot(
         symbol=symbol,
-        ts=datetime.now(timezone.utc),
+        ts=datetime.now(UTC),
         bids=_lvls(raw.get("best_5_buy_data", [])),
         asks=_lvls(raw.get("best_5_sell_data", [])),
         ltp=raw.get("last_traded_price", 0) / 100 if raw.get("last_traded_price") else None,

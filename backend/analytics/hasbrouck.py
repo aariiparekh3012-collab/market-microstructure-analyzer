@@ -1,15 +1,13 @@
-"""Hasbrouck Information Share (Hasbrouck, 1991/1995).
+"""Trade/quote variance diagnostic inspired by price-discovery literature.
 
-Decomposes price variance into contributions from trades vs. quote
-revisions, measuring how much "private information" is revealed by
-trades. A high trade information share means informed traders are
-active — the market is discovering price through order flow rather
-than quote adjustments.
+This module is deliberately *not* labelled a Hasbrouck information-share
+estimator. Classical Hasbrouck information share uses cointegrated price series
+and a VECM innovation decomposition across venues. The single-venue diagnostic
+implemented here only tracks:
 
-We implement a simplified single-venue version that tracks:
 1. Trade-return variance (price moves on trade ticks)
 2. Quote-return variance (midprice moves between ticks)
-3. Information share = trade_var / (trade_var + quote_var)
+3. Descriptive variance share = trade_var / (trade_var + quote_var)
 
 Reference:
     Hasbrouck, J. (1991). "Measuring the Information Content of
@@ -22,39 +20,32 @@ Reference:
 
 from __future__ import annotations
 
-import math
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
 
-from backend.models import OrderBookSnapshot
 from backend.analytics.volume import TickRuleClassifier
+from backend.models import OrderBookSnapshot
 
 
 @dataclass(slots=True)
-class HasbrouckResult:
-    """Output of Hasbrouck information share estimation."""
-    trade_info_share: float      # fraction of variance from trades [0, 1]
-    quote_info_share: float      # fraction of variance from quotes [0, 1]
+class TradeQuoteVarianceResult:
+    """Output of the descriptive trade/quote variance diagnostic."""
+    trade_variance_share: float  # descriptive share in [0, 1]
+    quote_variance_share: float  # descriptive share in [0, 1]
     trade_var: float             # variance of trade returns
     quote_var: float             # variance of quote (mid) returns
-    permanent_impact_bps: float  # avg permanent price impact of trades
+    avg_signed_return_bps: float # average tick-rule-signed trade return
     n_obs: int
 
 
-class HasbrouckEstimator:
-    """Rolling Hasbrouck information share estimator.
-
-    Decomposes tick-level price changes into trade-induced and
-    quote-induced components, estimating how much price discovery
-    comes from order flow vs. market-maker quote adjustments.
-    """
+class TradeQuoteVarianceEstimator:
+    """Rolling descriptive variance diagnostic for a single price stream."""
 
     def __init__(self, window: int = 500) -> None:
         self._window = window
         self._classifier = TickRuleClassifier()
-        self._prev_mid: Optional[float] = None
-        self._prev_ltp: Optional[float] = None
+        self._prev_mid: float | None = None
+        self._prev_ltp: float | None = None
 
         # Trade returns: ΔP when a trade occurs (all ticks have trades here)
         self._trade_returns: deque[float] = deque(maxlen=window)
@@ -70,14 +61,16 @@ class HasbrouckEstimator:
         self._qr_sum2: float = 0.0
         self._si_sum: float = 0.0
 
-    def update(self, snap: OrderBookSnapshot) -> Optional[HasbrouckResult]:
-        """Process a tick and return information share estimates.
+    def update(self, snap: OrderBookSnapshot) -> TradeQuoteVarianceResult | None:
+        """Process a tick and return descriptive variance statistics.
 
         Returns None until at least 50 observations are collected.
         """
         mid = snap.midprice
         ltp = snap.ltp
-        sign = self._classifier.classify(snap)
+        if mid is None or mid <= 0 or ltp is None or ltp <= 0:
+            return None
+        sign = self._classifier.classify(ltp)
 
         if self._prev_mid is None:
             self._prev_mid = mid
@@ -89,7 +82,7 @@ class HasbrouckEstimator:
         # Quote return: change in midprice (in bps)
         quote_ret = (mid - self._prev_mid) / self._prev_mid * 10_000 if self._prev_mid else 0.0
         # Signed impact
-        signed_impact = sign * abs(trade_ret)
+        signed_impact = sign * trade_ret
 
         self._prev_mid = mid
         self._prev_ltp = ltp
@@ -136,11 +129,17 @@ class HasbrouckEstimator:
         # Average permanent impact
         perm_impact = self._si_sum / n
 
-        return HasbrouckResult(
-            trade_info_share=trade_share,
-            quote_info_share=quote_share,
+        return TradeQuoteVarianceResult(
+            trade_variance_share=trade_share,
+            quote_variance_share=quote_share,
             trade_var=trade_var,
             quote_var=quote_var,
-            permanent_impact_bps=perm_impact,
+            avg_signed_return_bps=perm_impact,
             n_obs=n,
         )
+
+
+# Compatibility aliases for callers of the original prototype. New code should
+# use the accurate names above.
+HasbrouckResult = TradeQuoteVarianceResult
+HasbrouckEstimator = TradeQuoteVarianceEstimator

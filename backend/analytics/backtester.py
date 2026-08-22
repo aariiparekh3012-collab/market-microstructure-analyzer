@@ -1,20 +1,17 @@
 """
 OFI Signal Backtester
 ---------------------
-Backtests mean-reversion strategies driven by Order Flow Imbalance (OFI)
-z-score signals.  Designed to work with tick-level microstructure data
+Backtests directional strategies driven by Order Flow Imbalance (OFI) z-score
+signals. Designed to work with tick-level microstructure data
 produced by the MMA data pipeline.
 """
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-
 
 # ---------------------------------------------------------------------------
 # Strategy
@@ -36,6 +33,7 @@ class OFIStrategy:
         lookback: int = 100,
         position_size: int = 1,
         transaction_cost_bps: float = 1.0,
+        initial_capital: float = 100_000.0,
     ):
         self.ofi_column = ofi_column
         self.entry_threshold = entry_threshold
@@ -43,12 +41,14 @@ class OFIStrategy:
         self.lookback = lookback
         self.position_size = position_size
         self.transaction_cost_bps = transaction_cost_bps
+        self.initial_capital = initial_capital
 
     def __repr__(self) -> str:
         return (
             f"OFIStrategy(ofi={self.ofi_column}, entry={self.entry_threshold}, "
             f"exit={self.exit_threshold}, lb={self.lookback}, "
-            f"size={self.position_size}, cost={self.transaction_cost_bps}bps)"
+            f"size={self.position_size}, cost={self.transaction_cost_bps}bps, "
+            f"capital={self.initial_capital})"
         )
 
 
@@ -58,13 +58,13 @@ class OFIStrategy:
 
 @dataclass
 class BacktestResult:
-    trades: List[Dict]
-    equity_curve: List[float]
+    trades: list[dict]
+    equity_curve: list[float]
     total_pnl: float = 0.0
     num_trades: int = 0
     win_rate: float = 0.0
     avg_pnl_per_trade: float = 0.0
-    sharpe_ratio: float = 0.0
+    sharpe_ratio: float = 0.0  # unannualised mean/std of completed trade returns
     max_drawdown: float = 0.0
     max_drawdown_pct: float = 0.0
     profit_factor: float = 0.0
@@ -117,6 +117,13 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
     -------
     BacktestResult
     """
+    required = {"midprice", strategy.ofi_column}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"backtest data is missing columns: {sorted(missing)}")
+    if df.empty:
+        return BacktestResult(trades=[], equity_curve=[])
+
     df = df.reset_index(drop=True)
     prices = df["midprice"].values.astype(np.float64)
     ofi_values = df[strategy.ofi_column].values.astype(np.float64)
@@ -133,8 +140,8 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
     entry_tick = 0
     entry_px = 0.0
 
-    trades: List[Dict] = []
-    equity_curve = np.zeros(n, dtype=np.float64)
+    trades: list[dict] = []
+    equity_curve = np.full(n, strategy.initial_capital, dtype=np.float64)
     cumulative_pnl = 0.0
     unrealised = 0.0
 
@@ -148,18 +155,21 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
                 position = 1
                 entry_tick = i
                 entry_px = px
-                cumulative_pnl -= cost_multiplier * px * strategy.position_size
+                entry_cost = cost_multiplier * px * strategy.position_size
+                cumulative_pnl -= entry_cost
             elif z < -strategy.entry_threshold:
                 position = -1
                 entry_tick = i
                 entry_px = px
-                cumulative_pnl -= cost_multiplier * px * strategy.position_size
+                entry_cost = cost_multiplier * px * strategy.position_size
+                cumulative_pnl -= entry_cost
         else:
             # --- look for exit ---
             if abs(z) < strategy.exit_threshold:
                 raw_pnl = position * (px - entry_px) * strategy.position_size
                 exit_cost = cost_multiplier * px * strategy.position_size
-                trade_pnl = raw_pnl - exit_cost
+                entry_cost = cost_multiplier * entry_px * strategy.position_size
+                trade_pnl = raw_pnl - entry_cost - exit_cost
 
                 cumulative_pnl += raw_pnl - exit_cost
                 trades.append({
@@ -175,19 +185,21 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
                 unrealised = 0.0
 
         # Mark-to-market unrealised PnL
-        if position != 0:
-            unrealised = position * (px - entry_px) * strategy.position_size
-        else:
-            unrealised = 0.0
+        unrealised = (
+            position * (px - entry_px) * strategy.position_size
+            if position != 0
+            else 0.0
+        )
 
-        equity_curve[i] = cumulative_pnl + unrealised
+        equity_curve[i] = strategy.initial_capital + cumulative_pnl + unrealised
 
     # --- If still in a position at end, force-close ---
     if position != 0:
         px = prices[-1]
         raw_pnl = position * (px - entry_px) * strategy.position_size
         exit_cost = cost_multiplier * px * strategy.position_size
-        trade_pnl = raw_pnl - exit_cost
+        entry_cost = cost_multiplier * entry_px * strategy.position_size
+        trade_pnl = raw_pnl - entry_cost - exit_cost
         cumulative_pnl += raw_pnl - exit_cost
         trades.append({
             "entry_tick": entry_tick,
@@ -198,7 +210,7 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
             "pnl": round(trade_pnl, 4),
             "holding_ticks": (n - 1) - entry_tick,
         })
-        equity_curve[-1] = cumulative_pnl
+        equity_curve[-1] = strategy.initial_capital + cumulative_pnl
 
     # --- Aggregate statistics ---
     num_trades = len(trades)
@@ -218,12 +230,16 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
         avg_pnl = 0.0
         profit_factor = 0.0
 
-    # Sharpe: annualised assuming 5 ticks/sec
+    # Unannualised Sharpe-like statistic over completed trade returns. We avoid
+    # annualising synthetic tick data because its wall-clock span is arbitrary.
     eq = equity_curve
-    tick_returns = np.diff(eq)
-    if len(tick_returns) > 1 and tick_returns.std() > 1e-12:
-        ticks_per_year = 5 * 252 * 6.25 * 3600  # 5 ticks/s * 252 days * 6.25 hrs/day * 3600 s/hr
-        sharpe = (tick_returns.mean() / tick_returns.std()) * math.sqrt(ticks_per_year)
+    if num_trades > 1:
+        trade_returns = np.array(
+            [t["pnl"] / (t["entry_px"] * strategy.position_size) for t in trades],
+            dtype=np.float64,
+        )
+        sample_std = trade_returns.std(ddof=1)
+        sharpe = trade_returns.mean() / sample_std if sample_std > 1e-12 else 0.0
     else:
         sharpe = 0.0
 

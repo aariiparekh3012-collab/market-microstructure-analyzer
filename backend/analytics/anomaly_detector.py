@@ -11,20 +11,28 @@ from .spread import quoted_spread
 class _RollingStats:
     def __init__(self, maxlen: int) -> None:
         self._buf: deque[float] = deque(maxlen=maxlen)
+        self._sum = 0.0
+        self._sum2 = 0.0
 
     def push(self, x: float) -> None:
         if math.isfinite(x):
+            if len(self._buf) == self._buf.maxlen:
+                expired = self._buf[0]
+                self._sum -= expired
+                self._sum2 -= expired * expired
             self._buf.append(x)
+            self._sum += x
+            self._sum2 += x * x
 
     def mean(self) -> float | None:
-        return sum(self._buf) / len(self._buf) if self._buf else None
+        return self._sum / len(self._buf) if self._buf else None
 
     def std(self) -> float | None:
         n = len(self._buf)
         if n < 5:
             return None
-        m = self.mean() or 0
-        var = sum((x - m) ** 2 for x in self._buf) / n
+        m = self._sum / n
+        var = max(0.0, self._sum2 / n - m * m)
         return math.sqrt(var)
 
     def zscore(self, x: float) -> float | None:
@@ -36,9 +44,16 @@ class _RollingStats:
 
 
 class AnomalyDetector:
-    def __init__(self, spread_window: int = 300, volume_window: int = 300, z_threshold: float = 3.0) -> None:
+    def __init__(
+        self,
+        spread_window: int = 300,
+        volume_window: int = 300,
+        ofi_window: int = 300,
+        z_threshold: float = 3.0,
+    ) -> None:
         self.spread_stats = _RollingStats(spread_window)
         self.vol_stats = _RollingStats(volume_window)
+        self.ofi_stats = _RollingStats(ofi_window)
         self.z_threshold = z_threshold
         self._prev_vol: int | None = None
 
@@ -68,16 +83,14 @@ class AnomalyDetector:
                     detail={"tick_volume": dvol, "zscore": round(z, 2)},
                 ))
 
-        if ofi_rolling is not None and abs(ofi_rolling) > 0:
-            near_qty = (
-                (s.bids[0].qty if s.bids else 0) + (s.asks[0].qty if s.asks else 0)
-            ) or 1
-            imbalance_ratio = ofi_rolling / near_qty
-            if abs(imbalance_ratio) > 5.0:
+        if ofi_rolling is not None:
+            z = self.ofi_stats.zscore(ofi_rolling)
+            self.ofi_stats.push(ofi_rolling)
+            if z is not None and abs(z) > self.z_threshold:
                 out.append(Anomaly(
                     symbol=s.symbol, ts=s.ts, kind="ofi_extreme",
-                    severity="warn",
-                    detail={"ofi": round(ofi_rolling, 2), "near_touch_qty": near_qty, "ratio": round(imbalance_ratio, 2)},
+                    severity="warn" if abs(z) < self.z_threshold * 1.5 else "critical",
+                    detail={"ofi": round(ofi_rolling, 2), "zscore": round(z, 2)},
                 ))
 
         return out

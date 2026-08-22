@@ -13,7 +13,10 @@ from ..models import OrderBookSnapshot
 class OFICalculator:
     def __init__(self, windows: tuple[int, ...] = (60, 300, 900)) -> None:
         self.windows = windows
-        self._history: deque[tuple[datetime, float]] = deque(maxlen=100_000)
+        self._history: dict[int, deque[tuple[datetime, float]]] = {
+            window: deque() for window in windows
+        }
+        self._sums: dict[int, float] = {window: 0.0 for window in windows}
         self._prev_bid_px: float | None = None
         self._prev_bid_qty: int | None = None
         self._prev_ask_px: float | None = None
@@ -46,14 +49,20 @@ class OFICalculator:
             e_ask = float(self._prev_ask_qty or 0)
 
         ofi = e_bid + e_ask
-        self._history.append((s.ts, ofi))
+        for window in self.windows:
+            self._history[window].append((s.ts, ofi))
+            self._sums[window] += ofi
         self._prev_bid_px, self._prev_bid_qty = bpx, bq
         self._prev_ask_px, self._prev_ask_qty = apx, aq
         return ofi
 
     def rolling(self, now: datetime) -> dict[str, float]:
-        out = {}
+        out: dict[str, float] = {}
         for w in self.windows:
             cutoff = now - timedelta(seconds=w)
-            out[f"ofi_{w}s"] = sum(v for t, v in self._history if t >= cutoff)
+            history = self._history[w]
+            while history and history[0][0] < cutoff:
+                _, expired = history.popleft()
+                self._sums[w] -= expired
+            out[f"ofi_{w}s"] = self._sums[w]
         return out

@@ -17,9 +17,6 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import List, Optional
-
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -137,7 +134,7 @@ async def client_worker(
     import websockets
     import websockets.exceptions
 
-    last_seq: Optional[int] = None
+    last_seq: int | None = None
     t_connect_start = time.monotonic()
 
     try:
@@ -153,7 +150,7 @@ async def client_worker(
             while time.monotonic() < deadline:
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 except websockets.exceptions.ConnectionClosed:
                     stats.disconnect_count += 1
@@ -192,7 +189,7 @@ async def client_worker(
 
 async def run_stress_test(config: StressTestConfig, port: int = 8765) -> StressTestResult:
     ws_url = f"ws://127.0.0.1:{port}{config.endpoint}"
-    all_stats: List[ClientStats] = [ClientStats() for _ in range(config.num_clients)]
+    all_stats: list[ClientStats] = [ClientStats() for _ in range(config.num_clients)]
 
     ramp_delay = (
         config.ramp_up_seconds / config.num_clients
@@ -200,7 +197,7 @@ async def run_stress_test(config: StressTestConfig, port: int = 8765) -> StressT
         else 0
     )
 
-    tasks: List[asyncio.Task] = []
+    tasks: list[asyncio.Task] = []
     print(f"  Ramping up {config.num_clients} clients over {config.ramp_up_seconds}s ...")
 
     for i in range(config.num_clients):

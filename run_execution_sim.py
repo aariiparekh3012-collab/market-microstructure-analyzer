@@ -6,7 +6,9 @@ Loads tick data, runs TWAP and VWAP simulations at various target quantities,
 prints comparison tables, and saves results to CSV.
 """
 
-import sys, os
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 import pandas as pd
@@ -15,7 +17,6 @@ from backend.analytics.execution_sim import (
     TWAPExecutor,
     VWAPExecutor,
     simulate,
-    ExecutionResult,
 )
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -44,12 +45,16 @@ def run_one(ticks: pd.DataFrame, strategy: str, target_qty: int) -> dict:
         "arrival_slippage_bps": result.total_slippage_bps,
         "vwap_slippage_bps": result.vwap_slippage_bps,
         "impl_shortfall_bps": result.implementation_shortfall,
-        "market_impact_bps": result.market_impact_bps,
+        "last_fill_slippage_bps": result.last_fill_slippage_bps,
     }
 
 
 def main():
     # ── Load data ───────────────────────────────────────────────────
+    if not os.path.exists(TICKS_PATH):
+        raise SystemExit(
+            "Missing data/ticks.csv. Run: python scripts/generate_sample_data.py"
+        )
     print(f"Loading ticks from {TICKS_PATH} ...")
     ticks_all = pd.read_csv(TICKS_PATH)
     ticks = ticks_all[ticks_all["symbol"] == SYMBOL].copy()
@@ -66,7 +71,7 @@ def main():
     ]
 
     fmt = "{:<10} {:>12} {:>18} {:>16} {:>14}"
-    print(fmt.format("Strategy", "Avg Fill", "Arrival Slip(bps)", "VWAP Slip(bps)", "Impact(bps)"))
+    print(fmt.format("Strategy", "Avg Fill", "Arrival Slip(bps)", "VWAP Slip(bps)", "Last Fill(bps)"))
     print("-" * 72)
     for r in rows:
         print(fmt.format(
@@ -74,7 +79,7 @@ def main():
             f"{r['avg_fill_price']:.4f}",
             f"{r['arrival_slippage_bps']:.2f}",
             f"{r['vwap_slippage_bps']:.2f}",
-            f"{r['market_impact_bps']:.2f}",
+            f"{r['last_fill_slippage_bps']:.2f}",
         ))
     print()
 
@@ -87,7 +92,7 @@ def main():
     print("=" * 88)
 
     fmt2 = "{:<10} {:>10} {:>12} {:>18} {:>16} {:>14}"
-    print(fmt2.format("Strategy", "Qty", "Avg Fill", "Arrival Slip(bps)", "VWAP Slip(bps)", "Impact(bps)"))
+    print(fmt2.format("Strategy", "Qty", "Avg Fill", "Arrival Slip(bps)", "VWAP Slip(bps)", "Last Fill(bps)"))
     print("-" * 88)
 
     for qty in quantities:
@@ -100,7 +105,7 @@ def main():
                 f"{r['avg_fill_price']:.4f}",
                 f"{r['arrival_slippage_bps']:.2f}",
                 f"{r['vwap_slippage_bps']:.2f}",
-                f"{r['market_impact_bps']:.2f}",
+                f"{r['last_fill_slippage_bps']:.2f}",
             ))
     print()
 

@@ -1,5 +1,6 @@
 """Bid-ask spread metrics."""
 from __future__ import annotations
+
 from ..models import OrderBookSnapshot
 
 
