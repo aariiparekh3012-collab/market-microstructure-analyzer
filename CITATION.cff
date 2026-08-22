@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software in research, please cite it using the metadata below."
+title: "Real-Time Market Microstructure Analyzer"
+type: software
+authors:
+  - family-names: "Parekh"
+    given-names: "Aarya"
+    affiliation: "Indian Institute of Technology Bombay"
+repository-code: "https://github.com/aariiparekh3012-collab/quantproject2"
+url: "https://github.com/aariiparekh3012-collab/quantproject2"
+version: 0.1.0
+date-released: 2026-08-22
+abstract: >-
+  A research-grade platform for computing, backtesting, and visualising
+  market microstructure signals for Indian equities using deterministic
+  synthetic order-book data, streaming analytics, FastAPI WebSockets,
+  and a React dashboard.
+keywords:
+  - market microstructure
+  - order flow imbalance
+  - liquidity
+  - quantitative finance
+  - Indian equities
+  - research software
