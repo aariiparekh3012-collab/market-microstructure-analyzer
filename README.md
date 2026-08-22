@@ -1,6 +1,12 @@
 # Real-Time Market Microstructure Analyzer
 
-[![DOI badge for the Real-Time Market Microstructure Analyzer project with DOI number 10.5281/zenodo.22057358, displayed as a Zenodo badge reading DOI 10.5281/zenodo.22057358 on a simple light background](https://zenodo.org/badge/DOI/10.5281/zenodo.22057358.svg)](https://doi.org/10.5281/zenodo.22057358)
+[![GitHub Actions](https://github.com/aariiparekh3012-collab/quantproject2/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aariiparekh3012-collab/quantproject2/actions/workflows/ci.yml)
+[![Codacy Grade](https://app.codacy.com/project/badge/Grade/5acc6cee7d604261aa8b6b729dc52018)](https://app.codacy.com/gh/aariiparekh3012-collab/quantproject2/dashboard)
+[![Codacy Coverage](https://app.codacy.com/project/badge/Coverage/5acc6cee7d604261aa8b6b729dc52018)](https://app.codacy.com/gh/aariiparekh3012-collab/quantproject2/dashboard)
+[![SonarQube Cloud Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=aariiparekh3012-collab_quantproject2&metric=alert_status)](https://sonarcloud.io/dashboard?id=aariiparekh3012-collab_quantproject2)
+[![SonarQube Cloud Security Rating](https://sonarcloud.io/api/project_badges/measure?project=aariiparekh3012-collab_quantproject2&metric=security_rating)](https://sonarcloud.io/dashboard?id=aariiparekh3012-collab_quantproject2)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22057358.svg)](https://doi.org/10.5281/zenodo.22057358)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 
 A research-grade platform for computing, backtesting, and visualising market
 microstructure signals for Indian equities.
