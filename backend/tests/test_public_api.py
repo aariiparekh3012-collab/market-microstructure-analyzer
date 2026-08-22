@@ -1,3 +1,5 @@
+from unittest import TestCase
+
 from market_microstructure import (
     Anomaly,
     BookLevel,
@@ -6,8 +8,9 @@ from market_microstructure import (
 )
 
 
-def test_public_api_exports() -> None:
-    assert Engine is not None
-    assert BookLevel is not None
-    assert OrderBookSnapshot is not None
-    assert Anomaly is not None
+class TestPublicAPI(TestCase):
+    def test_public_api_exports(self) -> None:
+        self.assertIsNotNone(Engine)
+        self.assertIsNotNone(BookLevel)
+        self.assertIsNotNone(OrderBookSnapshot)
+        self.assertIsNotNone(Anomaly)
