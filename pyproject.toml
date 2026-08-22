@@ -42,7 +42,7 @@ requires = ["setuptools>=70"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["backend*"]
+include = ["backend*", "market_microstructure*"]
 
 [tool.ruff]
 line-length = 100
