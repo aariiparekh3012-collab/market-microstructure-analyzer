@@ -9,6 +9,13 @@ export function useJsonWebSocket(url, { historyLimit = 300 } = {}) {
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer;
+    
+    setLatest(null);
+    setHistory([]);
+    setStatus('connecting');
+    
+    backoffRef.current = 500;
 
     function connect() {
       if (cancelled) return;
