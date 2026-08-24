@@ -14,7 +14,6 @@ export function useJsonWebSocket(url, { historyLimit = 300 } = {}) {
     setLatest(null);
     setHistory([]);
     setStatus('connecting');
-    
     backoffRef.current = 500;
 
     function connect() {
