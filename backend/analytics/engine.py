@@ -1,8 +1,13 @@
-"""Central analytics engine — aggregates all per-symbol analytics."""
+"""Central analytics engine — aggregates all per-symbol analytics.
+
+`Engine.process` is the sole owner of the metrics-dict schema. Instrumented
+variants (`ProfiledEngine`) run the same modules through `_ModuleRunner` hooks
+so a new signal added here does not need to be added anywhere else.
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from backend.analytics.amihud import AmihudEstimator
 from backend.analytics.anomaly_detector import AnomalyDetector
@@ -19,6 +24,17 @@ from backend.models import Anomaly, OrderBookSnapshot
 class SymbolAnalytics:
     """Holds all analytics state for a single symbol."""
 
+    __slots__ = (
+        "ofi",
+        "vwap",
+        "volume_profile",
+        "anomaly_detector",
+        "kyle_lambda",
+        "amihud",
+        "roll_spread",
+        "trade_quote_variance",
+    )
+
     def __init__(self) -> None:
         self.ofi = OFICalculator()
         self.vwap = SessionVWAP()
@@ -29,11 +45,122 @@ class SymbolAnalytics:
             ofi_window=300,
             z_threshold=3.0,
         )
-        # Advanced microstructure estimators
         self.kyle_lambda = KyleLambdaEstimator(window=300)
         self.amihud = AmihudEstimator(window=300)
         self.roll_spread = RollSpreadEstimator(window=200)
         self.trade_quote_variance = TradeQuoteVarianceEstimator(window=500)
+
+
+class _ModuleTimer(Protocol):
+    """Hook invoked by `_run_modules` around each analytics module.
+
+    The base `Engine` uses a no-op timer; `ProfiledEngine` supplies one that
+    records `time.perf_counter_ns()` into a per-tick timing record.
+    """
+
+    def __call__(self, name: str, /) -> "_TimerHandle": ...
+
+
+class _TimerHandle(Protocol):
+    def __enter__(self) -> None: ...
+    def __exit__(self, *exc: object) -> None: ...
+
+
+class _NoopTimer:
+    """Zero-overhead timer used by the production Engine."""
+
+    def __call__(self, _name: str, /) -> "_NoopTimer":
+        return self
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+
+_NOOP_TIMER = _NoopTimer()
+
+
+def _run_modules(
+    sa: SymbolAnalytics,
+    snap: OrderBookSnapshot,
+    timer: _ModuleTimer = _NOOP_TIMER,
+) -> tuple[dict[str, Any], list[Anomaly]]:
+    """Run every analytics module against `snap` and build the metrics dict.
+
+    This is the single source of truth for what a "tick's metrics" contains.
+    A profiler wraps each module call in its own timing context via `timer`;
+    the default no-op timer has zero measurable overhead.
+    """
+    # Cache midprice / ltp once — cheaper than re-walking properties from
+    # each estimator (there are 5+ midprice reads per tick otherwise).
+    mid = snap.midprice
+    ltp = snap.ltp
+
+    with timer("spread"):
+        qs = quoted_spread(snap)
+        rs = relative_spread(snap)
+        ws = weighted_spread(snap, depth=5)
+
+    with timer("ofi"):
+        ofi_event = sa.ofi.update(snap)
+        ofi_rolling = sa.ofi.rolling(snap.ts)
+
+    with timer("vwap"):
+        sa.vwap.update(snap)
+        vwap_val = sa.vwap.vwap
+        vwap_stdev = sa.vwap.stdev
+        vwap_dev = (ltp - vwap_val) / vwap_val if (ltp is not None and vwap_val) else 0.0
+
+    with timer("volume"):
+        sa.volume_profile.update(snap)
+        cum_delta = sa.volume_profile.cumulative_delta
+
+    with timer("kyle"):
+        kyle_res = sa.kyle_lambda.update(snap)
+
+    with timer("amihud"):
+        amihud_res = sa.amihud.update(snap)
+
+    with timer("roll"):
+        roll_res = sa.roll_spread.update(snap)
+
+    with timer("trade_quote"):
+        variance_res = sa.trade_quote_variance.update(snap)
+
+    with timer("anomaly"):
+        anomalies = sa.anomaly_detector.check(snap, ofi_event)
+
+    metrics: dict[str, Any] = {
+        "symbol": snap.symbol,
+        "timestamp": snap.ts.isoformat(),
+        "ltp": ltp,
+        "midprice": mid,
+        "spread": qs,
+        "relative_spread": rs,
+        "weighted_spread": ws,
+        "ofi_60s": ofi_rolling["ofi_60s"],
+        "ofi_300s": ofi_rolling["ofi_300s"],
+        "ofi_900s": ofi_rolling["ofi_900s"],
+        "vwap": vwap_val,
+        "vwap_dev": vwap_dev,
+        "vwap_stdev": vwap_stdev,
+        "cum_delta": cum_delta,
+        "kyle_lambda": kyle_res.lambda_val if kyle_res else None,
+        "kyle_r2": kyle_res.r_squared if kyle_res else None,
+        "kyle_t_stat": kyle_res.t_statistic if kyle_res else None,
+        "amihud_illiq": amihud_res.illiq_avg if amihud_res else None,
+        "roll_spread_bps": roll_res.implied_spread_bps if roll_res else None,
+        "roll_serial_cov": roll_res.serial_cov if roll_res else None,
+        "trade_variance_share": (
+            variance_res.trade_variance_share if variance_res else None
+        ),
+        "avg_signed_trade_return_bps": (
+            variance_res.avg_signed_return_bps if variance_res else None
+        ),
+    }
+    return metrics, anomalies
 
 
 class Engine:
@@ -43,93 +170,16 @@ class Engine:
         self._analytics: dict[str, SymbolAnalytics] = {}
 
     def _get(self, symbol: str) -> SymbolAnalytics:
-        if symbol not in self._analytics:
-            self._analytics[symbol] = SymbolAnalytics()
-        return self._analytics[symbol]
+        sa = self._analytics.get(symbol)
+        if sa is None:
+            sa = self._analytics[symbol] = SymbolAnalytics()
+        return sa
 
     def process(
         self, snap: OrderBookSnapshot
     ) -> tuple[dict[str, Any], list[Anomaly]]:
-        """Process a single snapshot.
-
-        Returns:
-            (metrics_dict, anomalies_list)
-        """
-        sa = self._get(snap.symbol)
-
-        # --- spreads ---
-        qs = quoted_spread(snap)
-        rs = relative_spread(snap)
-        ws = weighted_spread(snap, depth=5)
-
-        # --- OFI ---
-        ofi_event = sa.ofi.update(snap)
-        ofi_rolling = sa.ofi.rolling(snap.ts)
-
-        # --- VWAP ---
-        sa.vwap.update(snap)
-        vwap_val = sa.vwap.vwap
-        vwap_stdev = sa.vwap.stdev
-        vwap_dev = (snap.ltp - vwap_val) / vwap_val if vwap_val else 0.0
-
-        # --- Volume profile ---
-        sa.volume_profile.update(snap)
-        cum_delta = sa.volume_profile.cumulative_delta
-
-        # --- Kyle's Lambda (price impact) ---
-        kyle_res = sa.kyle_lambda.update(snap)
-        kyle_lambda = kyle_res.lambda_val if kyle_res else None
-        kyle_r2 = kyle_res.r_squared if kyle_res else None
-        kyle_t = kyle_res.t_statistic if kyle_res else None
-
-        # --- Amihud Illiquidity ---
-        amihud_res = sa.amihud.update(snap)
-        amihud_illiq = amihud_res.illiq_avg if amihud_res else None
-
-        # --- Roll's Implied Spread ---
-        roll_res = sa.roll_spread.update(snap)
-        roll_spread_val = roll_res.implied_spread_bps if roll_res else None
-        roll_cov = roll_res.serial_cov if roll_res else None
-
-        # --- Descriptive trade/quote variance diagnostic ---
-        variance_res = sa.trade_quote_variance.update(snap)
-        trade_variance_share = (
-            variance_res.trade_variance_share if variance_res else None
-        )
-        avg_signed_return = (
-            variance_res.avg_signed_return_bps if variance_res else None
-        )
-
-        # --- Anomaly detection ---
-        anomalies = sa.anomaly_detector.check(snap, ofi_event)
-
-        metrics: dict[str, Any] = {
-            "symbol": snap.symbol,
-            "timestamp": snap.ts.isoformat(),
-            "ltp": snap.ltp,
-            "midprice": snap.midprice,
-            "spread": qs,
-            "relative_spread": rs,
-            "weighted_spread": ws,
-            "ofi_60s": ofi_rolling["ofi_60s"],
-            "ofi_300s": ofi_rolling["ofi_300s"],
-            "ofi_900s": ofi_rolling["ofi_900s"],
-            "vwap": vwap_val,
-            "vwap_dev": vwap_dev,
-            "vwap_stdev": vwap_stdev,
-            "cum_delta": cum_delta,
-            # Advanced microstructure metrics
-            "kyle_lambda": kyle_lambda,
-            "kyle_r2": kyle_r2,
-            "kyle_t_stat": kyle_t,
-            "amihud_illiq": amihud_illiq,
-            "roll_spread_bps": roll_spread_val,
-            "roll_serial_cov": roll_cov,
-            "trade_variance_share": trade_variance_share,
-            "avg_signed_trade_return_bps": avg_signed_return,
-        }
-
-        return metrics, anomalies
+        """Process a single snapshot and return (metrics, anomalies)."""
+        return _run_modules(self._get(snap.symbol), snap)
 
     def volume_profile(self, symbol: str) -> dict[float, int]:
         """Return the current volume profile without creating symbol state."""
