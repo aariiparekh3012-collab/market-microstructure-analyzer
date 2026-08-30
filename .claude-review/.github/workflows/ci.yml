@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv sync --locked --extra dev
+      - name: Lint
+        run: uv run ruff check backend scripts run_backtest.py run_execution_sim.py run_profiler.py tests
+      - name: Test with coverage
+        run: uv run pytest --cov=backend --cov-report=term-missing --cov-report=xml:cobertura.xml --cov-fail-under=80
+      - name: Upload coverage to Codacy
+        if: matrix.python-version == '3.12' && github.event_name == 'push'
+        uses: codacy/codacy-coverage-reporter-action@v1.3.0
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          coverage-reports: cobertura.xml
+      - name: Exercise reproducible research commands
+        run: |
+          uv run python scripts/generate_sample_data.py --ticks-per-symbol 20 --output /tmp/mma-data
+          uv run python run_profiler.py --ticks 250 --output /tmp/mma-profile
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Build
+        working-directory: frontend
+        run: npm run build

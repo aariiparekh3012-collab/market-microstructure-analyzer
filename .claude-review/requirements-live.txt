@@ -1,0 +1,5 @@
+-r requirements.txt
+
+yfinance>=0.2.40
+smartapi-python>=1.4.0
+pyotp>=2.9.0
