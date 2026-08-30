@@ -47,3 +47,4 @@ logs/
 # Notebooks
 .ipynb_checkpoints/
 notebooks/*.ipynb_checkpoints/
+.claude-review/
