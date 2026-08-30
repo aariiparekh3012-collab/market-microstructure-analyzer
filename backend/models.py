@@ -35,15 +35,11 @@ class OrderBookSnapshot:
 
     @property
     def midprice(self) -> float | None:
-        if self.best_bid is None or self.best_ask is None:
+        # Directly index bids/asks rather than routing through best_bid/best_ask
+        # properties (three attribute lookups collapsed to one truthy check).
+        if not self.bids or not self.asks:
             return None
-        return (self.best_bid + self.best_ask) / 2
-
-    @property
-    def spread(self) -> float | None:
-        if self.best_bid is None or self.best_ask is None:
-            return None
-        return self.asks[0].price - self.bids[0].price
+        return (self.bids[0].price + self.asks[0].price) / 2
 
 
 @dataclass(slots=True)

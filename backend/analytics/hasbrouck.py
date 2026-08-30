@@ -77,10 +77,10 @@ class TradeQuoteVarianceEstimator:
             self._prev_ltp = ltp
             return None
 
-        # Trade return: change in transaction price (in bps)
-        trade_ret = (ltp - self._prev_ltp) / self._prev_ltp * 10_000 if self._prev_ltp else 0.0
-        # Quote return: change in midprice (in bps)
-        quote_ret = (mid - self._prev_mid) / self._prev_mid * 10_000 if self._prev_mid else 0.0
+        # Trade / quote returns in bps. prev_ltp and prev_mid are guaranteed
+        # positive by the guard above (ltp > 0, mid > 0), so no zero-check.
+        trade_ret = (ltp - self._prev_ltp) / self._prev_ltp * 10_000
+        quote_ret = (mid - self._prev_mid) / self._prev_mid * 10_000
         # Signed impact
         signed_impact = sign * trade_ret
 

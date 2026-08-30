@@ -91,8 +91,9 @@ class KyleLambdaEstimator:
             self._prev_mid = mid
             return None
 
-        # ΔP in basis points relative to previous mid
-        dp = (mid - self._prev_mid) / self._prev_mid * 10_000 if self._prev_mid else 0.0
+        # ΔP in basis points relative to previous mid (prev_mid > 0 guaranteed
+        # above, so no zero-guard needed on the divisor).
+        dp = (mid - self._prev_mid) / self._prev_mid * 10_000
         signed_vol = float(sign * snap.ltq)
         self._prev_mid = mid
 
@@ -102,28 +103,25 @@ class KyleLambdaEstimator:
         if n < 30:
             return None
 
-        # OLS: y = α + λx  where x = signed_vol, y = ΔP
-        denom = n * self._sx2 - self._sx ** 2
-        if abs(denom) < 1e-12:
+        # OLS on centered sums:
+        #   Sxx = Σx² − (Σx)²/n,  Syy = Σy² − (Σy)²/n,  Sxy = Σxy − ΣxΣy/n
+        # λ = Sxy / Sxx,  ss_res = Syy − λ · Sxy = Syy − λ² · Sxx
+        # All O(1) — no rescan of the window buffers.
+        sxx = self._sx2 - self._sx * self._sx / n
+        if sxx < 1e-12:
             return KyleLambdaResult(lambda_val=0.0, r_squared=0.0,
                                     t_statistic=0.0, n_obs=n)
 
-        lam = (n * self._sxy - self._sx * self._sy) / denom
-        alpha = (self._sy - lam * self._sx) / n
+        syy = self._sy2 - self._sy * self._sy / n
+        sxy_c = self._sxy - self._sx * self._sy / n
 
-        # R² and t-statistic
-        ss_tot = self._sy2 - self._sy ** 2 / n
-        ss_res = 0.0
-        for x_i, y_i in zip(self._sv, self._dp, strict=True):
-            residual = y_i - (alpha + lam * x_i)
-            ss_res += residual * residual
+        lam = sxy_c / sxx
+        ss_res = max(0.0, syy - lam * sxy_c)
+        r_sq = max(0.0, 1.0 - ss_res / syy) if syy > 0 else 0.0
 
-        r_sq = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
-        r_sq = max(0.0, r_sq)
-
-        # Standard error of lambda
+        # Standard error of lambda: se(λ) = sqrt(MSE / Sxx)
         mse = ss_res / (n - 2) if n > 2 else 0.0
-        se_lam = math.sqrt(mse * n / denom) if denom > 0 and mse > 0 else 0.0
+        se_lam = math.sqrt(mse / sxx) if mse > 0 else 0.0
         t_stat = lam / se_lam if se_lam > 0 else 0.0
 
         return KyleLambdaResult(

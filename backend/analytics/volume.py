@@ -61,8 +61,3 @@ class VolumeProfile:
     @property
     def cumulative_delta(self) -> int:
         return self._delta
-
-    @property
-    def cum_delta(self) -> int:
-        """Backward-compatible alias for ``cumulative_delta``."""
-        return self.cumulative_delta
