@@ -13,6 +13,10 @@ COPY . .
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Keep static assets read-only so the non-root nginx user cannot modify them.
+COPY --from=builder --chown=root:root --chmod=755 /app/dist /usr/share/nginx/html
+RUN find /usr/share/nginx/html -type d -exec chmod 755 {} + \
+    && find /usr/share/nginx/html -type f -exec chmod 644 {} +
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+USER nginx
 EXPOSE 80

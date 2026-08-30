@@ -156,7 +156,11 @@ def symbols() -> list[str]:
     return settings.symbol_list
 
 
-@app.get("/api/volume-profile/{symbol}", dependencies=[Depends(rate_limit)])
+@app.get(
+    "/api/volume-profile/{symbol}",
+    dependencies=[Depends(rate_limit)],
+    responses={404: {"description": "no data yet for this symbol"}},
+)
 def volume_profile(symbol: str) -> dict:
     prof = streamer.volume_profile(symbol.upper())
     if not prof:

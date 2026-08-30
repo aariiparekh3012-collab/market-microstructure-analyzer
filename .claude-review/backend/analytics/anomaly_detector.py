@@ -3,9 +3,16 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from datetime import datetime, timezone
 
 from ..models import Anomaly, OrderBookSnapshot
 from .spread import quoted_spread
+
+
+def _as_datetime(ts: float | datetime) -> datetime:
+    if isinstance(ts, datetime):
+        return ts
+    return datetime.fromtimestamp(float(ts), tz=timezone.utc)
 
 
 class _RollingStats:
@@ -57,40 +64,72 @@ class AnomalyDetector:
         self.z_threshold = z_threshold
         self._prev_vol: int | None = None
 
+    def _record_anomaly(
+        self,
+        out: list[Anomaly],
+        *,
+        symbol: str,
+        ts: float | datetime,
+        kind: str,
+        value: float,
+        stats: _RollingStats,
+        detail_key: str,
+        abs_mode: bool = False,
+    ) -> None:
+        z = stats.zscore(value)
+        stats.push(value)
+        if z is None:
+            return
+
+        trigger = abs(z) if abs_mode else z
+        if (abs_mode and abs(z) > self.z_threshold) or (not abs_mode and z > self.z_threshold):
+            ts_value = _as_datetime(ts)
+            out.append(Anomaly(
+                symbol=symbol,
+                ts=ts_value,
+                kind=kind,
+                severity="warn" if trigger < self.z_threshold * 1.5 else "critical",
+                detail={detail_key: round(value, 2) if detail_key == "ofi" else value, "zscore": round(z, 2)},
+            ))
+
     def check(self, s: OrderBookSnapshot, ofi_rolling: float | None = None) -> list[Anomaly]:
         out: list[Anomaly] = []
 
         sp = quoted_spread(s)
         if sp is not None:
-            z = self.spread_stats.zscore(sp)
-            self.spread_stats.push(sp)
-            if z is not None and z > self.z_threshold:
-                out.append(Anomaly(
-                    symbol=s.symbol, ts=s.ts, kind="spread_blowup",
-                    severity="warn" if z < self.z_threshold * 1.5 else "critical",
-                    detail={"spread": sp, "zscore": round(z, 2)},
-                ))
+            self._record_anomaly(
+                out,
+                symbol=s.symbol,
+                ts=s.ts,
+                kind="spread_blowup",
+                value=sp,
+                stats=self.spread_stats,
+                detail_key="spread",
+            )
 
         if s.volume is not None:
             dvol = 0 if self._prev_vol is None else max(0, s.volume - self._prev_vol)
             self._prev_vol = s.volume
-            z = self.vol_stats.zscore(dvol)
-            self.vol_stats.push(float(dvol))
-            if z is not None and z > self.z_threshold:
-                out.append(Anomaly(
-                    symbol=s.symbol, ts=s.ts, kind="volume_spike",
-                    severity="warn" if z < self.z_threshold * 1.5 else "critical",
-                    detail={"tick_volume": dvol, "zscore": round(z, 2)},
-                ))
+            self._record_anomaly(
+                out,
+                symbol=s.symbol,
+                ts=s.ts,
+                kind="volume_spike",
+                value=float(dvol),
+                stats=self.vol_stats,
+                detail_key="tick_volume",
+            )
 
         if ofi_rolling is not None:
-            z = self.ofi_stats.zscore(ofi_rolling)
-            self.ofi_stats.push(ofi_rolling)
-            if z is not None and abs(z) > self.z_threshold:
-                out.append(Anomaly(
-                    symbol=s.symbol, ts=s.ts, kind="ofi_extreme",
-                    severity="warn" if abs(z) < self.z_threshold * 1.5 else "critical",
-                    detail={"ofi": round(ofi_rolling, 2), "zscore": round(z, 2)},
-                ))
+            self._record_anomaly(
+                out,
+                symbol=s.symbol,
+                ts=s.ts,
+                kind="ofi_extreme",
+                value=ofi_rolling,
+                stats=self.ofi_stats,
+                detail_key="ofi",
+                abs_mode=True,
+            )
 
         return out

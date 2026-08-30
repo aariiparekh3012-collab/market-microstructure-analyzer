@@ -110,7 +110,7 @@ def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def rate_limit(request: Request) -> None:
+def rate_limit(request: Request) -> None:
     """FastAPI dependency: raises 429 with Retry-After when a client
     exceeds the per-minute quota. No-op when the setting is 0."""
     key = _client_key(request)

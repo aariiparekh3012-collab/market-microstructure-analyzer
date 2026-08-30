@@ -38,9 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app backend ./backend
-COPY --chown=app:app scripts ./scripts
-COPY --chown=app:app run_backtest.py run_execution_sim.py run_profiler.py ./
+COPY --chown=root:root --chmod=555 backend ./backend
+COPY --chown=root:root --chmod=555 scripts ./scripts
+COPY --chown=root:root --chmod=555 run_backtest.py run_execution_sim.py run_profiler.py ./
 
 # Where the tick store writes. Mount a volume here in compose / k8s.
 RUN mkdir -p /app/data/ticks && chown -R app:app /app/data

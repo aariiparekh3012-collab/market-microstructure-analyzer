@@ -11,8 +11,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api import main as api_main
-from backend.api import streamer as sm
+import backend.api.auth as auth_mod
+import backend.api.main as api_main
+import backend.api.streamer as sm
 from backend.api.auth import RateLimiter, _limiter
 
 
@@ -86,10 +87,11 @@ def test_healthz_returns_200_during_warmup(client):
 
 def test_healthz_returns_503_when_ticks_stale(client, monkeypatch):
     s = api_main.streamer
+    metrics = getattr(s, "metrics")
     # Simulate: warm-up long since elapsed, one tick was ingested a minute ago.
-    s._started_at = time.perf_counter() - 3600
-    s.metrics.ticks_ingested = 1
-    s.metrics.last_tick_ts = time.perf_counter() - 60
+    monkeypatch.setattr(s, "started_at", time.perf_counter() - 3600)
+    metrics.ticks_ingested = 1
+    metrics.last_tick_ts = time.perf_counter() - 60
 
     r = client.get("/healthz")
     assert r.status_code == 503
@@ -97,7 +99,7 @@ def test_healthz_returns_503_when_ticks_stale(client, monkeypatch):
 
 
 def test_healthz_returns_503_when_task_dead(client, monkeypatch):
-    api_main.streamer._task = None
+    monkeypatch.setattr(api_main.streamer, "_task", None)
     r = client.get("/healthz")
     assert r.status_code == 503
 
@@ -107,11 +109,13 @@ def test_healthz_returns_503_when_task_dead(client, monkeypatch):
 # --------------------------------------------------------------------------
 
 
-def test_metrics_prometheus_shape(client):
-    api_main.streamer.metrics.ticks_ingested = 42
-    api_main.streamer.metrics.anomalies_emitted = 3
-    api_main.streamer.metrics.messages_dropped["metrics:AAA"] = 7
-    api_main.streamer.metrics.ws_clients["book:AAA"] = 2
+def test_metrics_prometheus_shape(client, monkeypatch):
+    s = api_main.streamer
+    metrics = getattr(s, "metrics")
+    monkeypatch.setattr(metrics, "ticks_ingested", 42)
+    monkeypatch.setattr(metrics, "anomalies_emitted", 3)
+    metrics.messages_dropped["metrics:AAA"] = 7
+    metrics.ws_clients["book:AAA"] = 2
 
     r = client.get("/metrics")
     assert r.status_code == 200
@@ -155,9 +159,8 @@ def test_rate_limit_returns_429_and_retry_after(client, monkeypatch):
     """Enable a 3/min cap and verify the 4th request is 429 with Retry-After."""
     monkeypatch.setattr(api_main.settings, "http_rate_limit_per_minute", 3)
     # Reinstall the process-level limiter with the new cap.
-    from backend.api import auth as auth_mod
+    # Use the module imported at top of file to avoid re-import issues.
     monkeypatch.setattr(auth_mod, "_limiter", RateLimiter(per_minute=3))
-    monkeypatch.setattr(api_main, "rate_limit", api_main.rate_limit)  # ensure re-eval
 
     # 3 allowed
     for _ in range(3):
@@ -199,8 +202,10 @@ def test_ws_wrong_token_closes_with_4401(client, monkeypatch):
 
     from starlette.websockets import WebSocketDisconnect
     with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect("/ws/orderbook/AAA?token=wrong") as ws:
-            ws.receive_text()   # will never arrive; the server closed
+        # The connect attempt should raise; avoid calling other methods
+        # inside the context to ensure only one invocation may throw.
+        with client.websocket_connect("/ws/orderbook/AAA?token=wrong"):
+            pass
     assert excinfo.value.code == 4401
 
 
@@ -216,6 +221,7 @@ def test_ws_missing_token_when_required_closes_4401(client, monkeypatch):
     monkeypatch.setattr(api_main.settings, "ws_auth_token", "correct-secret")
     from starlette.websockets import WebSocketDisconnect
     with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect("/ws/alerts") as ws:
-            ws.receive_text()
+        # Only the connect should raise the disconnect; don't call receive_text().
+        with client.websocket_connect("/ws/alerts"):
+            pass
     assert excinfo.value.code == 4401

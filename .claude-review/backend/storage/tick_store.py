@@ -110,16 +110,20 @@ class TickStore:
             # file may already exist — read it once and re-emit it as the
             # first row group of the new writer so history is preserved.
             existing_prefix: pa.Table | None = None
+            existing_rows = 0
             if path.exists():
                 try:
                     existing_prefix = pq.read_table(path)
-                    log.info(
-                        "TickStore: reopening bucket %s (%d existing rows)",
-                        path.name, existing_prefix.num_rows,
-                    )
+                    if existing_prefix is not None:
+                        existing_rows = existing_prefix.num_rows
+                        log.info(
+                            "TickStore: reopening bucket %s (%d existing rows)",
+                            path.name, existing_rows,
+                        )
                 except Exception:
                     log.exception("TickStore: failed to read existing %s", path)
                     existing_prefix = None
+                    existing_rows = 0
             writer = pq.ParquetWriter(path, self._schema, compression="snappy")
             if existing_prefix is not None:
                 writer.write_table(existing_prefix.cast(self._schema, safe=False))
@@ -130,20 +134,29 @@ class TickStore:
     def flush(self) -> None:
         """Flush any buffered rows but keep writers open."""
         with self._lock:
-            for key in list(self._buffers.keys()):
+            # Pop keys one-by-one until buffers is empty. Iterating the
+            # dict view while mutating it would raise; avoid creating a
+            # full list copy.
+            while self._buffers:
+                key = next(iter(self._buffers))
                 self._flush_key_locked(key)
 
     def close(self) -> None:
         """Flush and close every writer. Idempotent — safe on shutdown."""
         with self._lock:
-            for key in list(self._buffers.keys()):
+            # Flush remaining buffers as in flush().
+            while self._buffers:
+                key = next(iter(self._buffers))
                 self._flush_key_locked(key)
-            for key, w in list(self._writers.items()):
+
+            # Close and remove writers until none remain. popitem() is
+            # safe here and avoids iterating a view while mutating.
+            while self._writers:
+                key, w = self._writers.popitem()
                 try:
                     w.close()
                 except Exception:
                     log.exception("TickStore: writer close failed for %s", key)
-                self._writers.pop(key, None)
 
     def read_day(self, symbol: str, day: str) -> pd.DataFrame:
         daydir = self.root / symbol / day

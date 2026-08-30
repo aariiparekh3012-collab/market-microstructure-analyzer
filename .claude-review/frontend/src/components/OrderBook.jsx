@@ -10,14 +10,14 @@ export default function OrderBook({ snapshot }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize: 13 }}>
         <div>
           <Header left="Bid px" right="Qty" />
-          {bids.slice(0, 5).map((l, i) => (
-            <Row key={i} px={l.price} qty={l.qty} pct={l.qty / maxQty} color="#3ddc84" align="left" />
+          {bids.slice(0, 5).map((l) => (
+            <Row key={`${l.price}-${l.qty}-bid`} px={l.price} qty={l.qty} pct={l.qty / maxQty} color="#3ddc84" align="left" />
           ))}
         </div>
         <div>
           <Header left="Ask px" right="Qty" />
-          {asks.slice(0, 5).map((l, i) => (
-            <Row key={i} px={l.price} qty={l.qty} pct={l.qty / maxQty} color="#e5484d" align="right" />
+          {asks.slice(0, 5).map((l) => (
+            <Row key={`${l.price}-${l.qty}-ask`} px={l.price} qty={l.qty} pct={l.qty / maxQty} color="#e5484d" align="right" />
           ))}
         </div>
       </div>

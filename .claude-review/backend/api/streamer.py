@@ -25,7 +25,7 @@ import time
 from collections import defaultdict, deque
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from ..analytics.engine import Engine
 from ..config import settings
@@ -75,6 +75,7 @@ class Streamer:
         if self._task is None:
             self._started_at = time.perf_counter()
             self._task = asyncio.create_task(self._run_supervised(), name="streamer")
+            await self._task
 
     async def stop(self) -> None:
         if self._task:
@@ -92,7 +93,7 @@ class Streamer:
         """Return (ok, details). ok=False if task dead or ticks stale."""
         now = time.perf_counter()
         task_alive = self._task is not None and not self._task.done()
-        never_ticked = self.metrics.last_tick_ts == 0.0
+        never_ticked = self.metrics.last_tick_ts <= 0.0
         age_s = None if never_ticked else now - self.metrics.last_tick_ts
         fresh = never_ticked or (age_s is not None and age_s < stale_after_s)
 
@@ -183,7 +184,7 @@ class Streamer:
     async def _run_once(self) -> None:
         source = make_source()
         log.info("Streamer connecting: source=%s symbols=%s", source.name, settings.symbol_list)
-        async for snap in source.stream(settings.symbol_list):
+        async for snap in await source.stream(settings.symbol_list):
             await self._handle(snap)
 
     async def _handle(self, snap: OrderBookSnapshot) -> None:
@@ -204,16 +205,19 @@ class Streamer:
             # Cache is a nice-to-have; carry on.
             log.warning("state_cache.put_snapshot failed for %s", snap.symbol, exc_info=True)
 
-        metrics, anomalies = self.engine.process(snap)
+        # Engine.process expects a snapshot type from the engine's module path;
+        # type-checkers may complain about differing import roots. Cast to Any
+        # to avoid spurious type errors while preserving runtime behavior.
+        metrics, anomalies = self.engine.process(cast(Any, snap))
         self._broadcast(self._book_subs.get(snap.symbol, set()),
                         _serialize_snapshot(snap), f"book:{snap.symbol}")
         self._broadcast(self._metric_subs.get(snap.symbol, set()),
                         metrics, f"metrics:{snap.symbol}")
 
         for a in anomalies:
-            self._recent_alerts.append(a)
+            self._recent_alerts.append(cast(Anomaly, a))
             self.metrics.anomalies_emitted += 1
-            self._broadcast(self._alert_subs, _anomaly_to_dict(a), "alerts")
+            self._broadcast(self._alert_subs, _anomaly_to_dict(cast(Anomaly, a)), "alerts")
 
         self.metrics.ticks_ingested += 1
         self.metrics.last_tick_ts = time.perf_counter()
@@ -222,7 +226,7 @@ class Streamer:
         if not subs:
             return
         msg = json.dumps(payload, default=str)
-        for q in list(subs):
+        for q in subs:
             if q.full():
                 # Drop-oldest to make room, and count the drop so the
                 # /metrics endpoint reflects backpressure.

@@ -109,7 +109,7 @@ def _walk_book(
         if remaining <= 0:
             break
 
-    if total_filled == 0.0:
+    if total_filled <= 0.0:
         return 0.0, float("nan")
     return total_filled, total_cost / total_filled
 
@@ -126,7 +126,8 @@ def _session_vwap(ticks: pd.DataFrame) -> float:
         qty = ticks["volume"].diff().clip(lower=1).fillna(1).to_numpy(dtype=np.float64)
     ltp = ticks["ltp"].to_numpy(dtype=np.float64)
     vol = float(qty.sum())
-    if vol == 0.0:
+    # Avoid exact float equality check; treat non-positive volume as empty
+    if vol <= 0.0:
         return float(ltp.mean())
     return float((ltp * qty).sum() / vol)
 
@@ -149,7 +150,7 @@ class TWAPExecutor:
     ):
         self.target_qty = target_qty
         self.num_slices = num_slices
-        self.side = side
+        self.side: Literal["buy", "sell"] = side
 
     def schedule(self, n_ticks: int) -> list[tuple[int, float]]:
         if n_ticks <= 0 or self.num_slices <= 0 or self.target_qty <= 0:
@@ -183,7 +184,7 @@ class VWAPExecutor:
     ):
         self.target_qty = target_qty
         self.num_slices = num_slices
-        self.side = side
+        self.side: Literal["buy", "sell"] = side
 
     def schedule(self, n_ticks: int, volumes: np.ndarray) -> list[tuple[int, float]]:
         if n_ticks <= 0 or self.num_slices <= 0 or self.target_qty <= 0:
@@ -265,14 +266,14 @@ def simulate(
 
     for tick_idx, child_qty in schedule:
         filled, fill_px = _walk_book(book, tick_idx, child_qty, side)
-        if filled == 0.0 or not np.isfinite(fill_px):
+        if not np.isfinite(filled) or not np.isfinite(fill_px):
             continue
         slip_bps = sign * (fill_px - arrival) / arrival * 10_000.0
         fills.append((tick_idx, filled, fill_px, round(float(slip_bps), 4)))
         total_filled += filled
         total_cost += filled * fill_px
 
-    if total_filled == 0.0:
+    if total_filled <= 0.0:
         return ExecutionResult(arrival_price=arrival, vwap_price=vwap)
 
     avg_fill = total_cost / total_filled

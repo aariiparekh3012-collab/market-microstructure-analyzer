@@ -127,6 +127,104 @@ def _close_trade(
 # ---------------------------------------------------------------------------
 
 
+def _validate_backtest_inputs(df: pd.DataFrame, strategy: OFIStrategy) -> None:
+    """Raise ValueError when required columns are missing."""
+    required = {"midprice", strategy.ofi_column}
+    missing = required.difference(df.columns)
+    if missing:
+        raise ValueError(f"backtest data is missing columns: {sorted(missing)}")
+
+
+def _apply_trade_signal(
+    z: float,
+    px: float,
+    idx: int,
+    position: int,
+    entry_tick: int,
+    entry_px: float,
+    cum_pnl: float,
+    trades: list[dict],
+    pos_size: int,
+    entry_thr: float,
+    exit_thr: float,
+    cost_mult: float,
+) -> tuple[int, int, float, float]:
+    """Process one tick's signal and update the strategy state."""
+    if position == 0:
+        if z <= entry_thr and z >= -entry_thr:
+            return position, entry_tick, entry_px, cum_pnl
+        new_position = 1 if z > 0 else -1
+        new_entry_tick = idx
+        new_entry_px = px
+        return (
+            new_position,
+            new_entry_tick,
+            new_entry_px,
+            cum_pnl - cost_mult * px * pos_size,
+        )
+
+    if abs(z) < exit_thr:
+        return (
+            0,
+            0,
+            0.0,
+            cum_pnl + _close_trade(
+                trades,
+                entry_tick,
+                idx,
+                position,
+                entry_px,
+                px,
+                pos_size,
+                cost_mult,
+            ),
+        )
+
+    return position, entry_tick, entry_px, cum_pnl
+
+
+def _aggregate_stats(trades: list[dict], pos_size: int) -> tuple[float, float, float, float]:
+    """Compute profit, drawdown, and Sharpe summary metrics."""
+    num_trades = len(trades)
+    if not num_trades:
+        return 0.0, 0.0, 0.0, 0.0
+
+    pnls = np.fromiter((t["pnl"] for t in trades), dtype=np.float64, count=num_trades)
+    wins = int((pnls > 0).sum())
+    win_rate = wins / num_trades
+    avg_pnl = float(pnls.mean())
+    gross_profit = float(pnls[pnls > 0].sum())
+    gross_loss = float(-pnls[pnls < 0].sum())
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 1e-12 else float("inf")
+
+    if num_trades > 1:
+        trade_returns = np.fromiter(
+            (t["pnl"] / (t["entry_px"] * pos_size) for t in trades),
+            dtype=np.float64,
+            count=num_trades,
+        )
+        sample_std = trade_returns.std(ddof=1)
+        sharpe = float(trade_returns.mean() / sample_std) if sample_std > 1e-12 else 0.0
+    else:
+        sharpe = 0.0
+
+    return win_rate, avg_pnl, profit_factor, sharpe
+
+
+def _compute_drawdown(equity: np.ndarray) -> tuple[float, float]:
+    """Return the max absolute drawdown and percentage drawdown."""
+    if not equity.size:
+        return 0.0, 0.0
+
+    running_max = np.maximum.accumulate(equity)
+    drawdowns = running_max - equity
+    idx = int(drawdowns.argmax())
+    max_dd = float(drawdowns[idx])
+    peak_at_dd = float(running_max[idx])
+    max_dd_pct = (max_dd / peak_at_dd * 100.0) if abs(peak_at_dd) > 1e-12 else 0.0
+    return max_dd, max_dd_pct
+
+
 def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
     """Run the OFI z-score backtest on a single-symbol DataFrame.
 
@@ -136,10 +234,7 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
         Must contain at minimum: ``midprice`` and the column named by
         ``strategy.ofi_column``.
     """
-    required = {"midprice", strategy.ofi_column}
-    missing = required.difference(df.columns)
-    if missing:
-        raise ValueError(f"backtest data is missing columns: {sorted(missing)}")
+    _validate_backtest_inputs(df, strategy)
     if df.empty:
         return BacktestResult()
 
@@ -147,7 +242,6 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
     prices = df["midprice"].to_numpy(dtype=np.float64)
     ofi = df[strategy.ofi_column]
 
-    # Vectorised — dominant runtime cost before this refactor.
     zscores = _rolling_zscore(ofi, strategy.lookback)
 
     cost_mult = strategy.transaction_cost_bps / 10_000.0
@@ -156,10 +250,9 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
     exit_thr = strategy.exit_threshold
 
     n = len(df)
-    position = 0            # +1 long, -1 short, 0 flat
+    position = 0
     entry_tick = 0
     entry_px = 0.0
-
     trades: list[dict] = []
     equity = np.full(n, strategy.initial_capital, dtype=np.float64)
     cum_pnl = 0.0
@@ -167,63 +260,39 @@ def run_backtest(df: pd.DataFrame, strategy: OFIStrategy) -> BacktestResult:
     for i in range(n):
         z = zscores[i]
         px = prices[i]
-
-        if position == 0:
-            if z > entry_thr or z < -entry_thr:
-                position = 1 if z > 0 else -1
-                entry_tick = i
-                entry_px = px
-                cum_pnl -= cost_mult * px * pos_size
-        elif abs(z) < exit_thr:
-            cum_pnl += _close_trade(
-                trades, entry_tick, i, position, entry_px, px, pos_size, cost_mult,
-            )
-            position = 0
-
+        position, entry_tick, entry_px, cum_pnl = _apply_trade_signal(
+            z,
+            px,
+            i,
+            position,
+            entry_tick,
+            entry_px,
+            cum_pnl,
+            trades,
+            pos_size,
+            entry_thr,
+            exit_thr,
+            cost_mult,
+        )
         unrealised = position * (px - entry_px) * pos_size if position else 0.0
         equity[i] = strategy.initial_capital + cum_pnl + unrealised
 
-    # Force-close any open position at the last tick.
     if position != 0:
         cum_pnl += _close_trade(
-            trades, entry_tick, n - 1, position, entry_px, prices[-1], pos_size, cost_mult,
+            trades,
+            entry_tick,
+            n - 1,
+            position,
+            entry_px,
+            prices[-1],
+            pos_size,
+            cost_mult,
         )
         equity[-1] = strategy.initial_capital + cum_pnl
 
-    # -------- aggregate statistics --------
     num_trades = len(trades)
-    if num_trades:
-        pnls = np.fromiter((t["pnl"] for t in trades), dtype=np.float64, count=num_trades)
-        wins = int((pnls > 0).sum())
-        win_rate = wins / num_trades
-        avg_pnl = float(pnls.mean())
-        gross_profit = float(pnls[pnls > 0].sum())
-        gross_loss = float(-pnls[pnls < 0].sum())
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 1e-12 else float("inf")
-    else:
-        win_rate = avg_pnl = profit_factor = 0.0
-
-    # Unannualised trade-return ratio — synthetic tick data has no meaningful
-    # wall-clock span, so annualising would be misleading.
-    if num_trades > 1:
-        trade_returns = np.fromiter(
-            (t["pnl"] / (t["entry_px"] * pos_size) for t in trades),
-            dtype=np.float64, count=num_trades,
-        )
-        sample_std = trade_returns.std(ddof=1)
-        sharpe = float(trade_returns.mean() / sample_std) if sample_std > 1e-12 else 0.0
-    else:
-        sharpe = 0.0
-
-    running_max = np.maximum.accumulate(equity)
-    drawdowns = running_max - equity
-    if drawdowns.size:
-        idx = int(drawdowns.argmax())
-        max_dd = float(drawdowns[idx])
-        peak_at_dd = float(running_max[idx])
-        max_dd_pct = (max_dd / peak_at_dd * 100.0) if abs(peak_at_dd) > 1e-12 else 0.0
-    else:
-        max_dd = max_dd_pct = 0.0
+    win_rate, avg_pnl, profit_factor, sharpe = _aggregate_stats(trades, pos_size)
+    max_dd, max_dd_pct = _compute_drawdown(equity)
 
     return BacktestResult(
         trades=trades,

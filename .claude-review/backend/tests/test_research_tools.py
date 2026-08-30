@@ -9,8 +9,10 @@ from backend.analytics.execution_sim import TWAPExecutor, VWAPExecutor, simulate
 
 
 def test_backtester_rejects_missing_columns():
+    df = pd.DataFrame({"midprice": [100.0]})
+    strategy = OFIStrategy()
     with pytest.raises(ValueError, match="missing columns"):
-        run_backtest(pd.DataFrame({"midprice": [100.0]}), OFIStrategy())
+        run_backtest(df, strategy)
 
 
 def test_backtester_trade_log_reconciles_to_total_pnl():
@@ -58,5 +60,8 @@ def test_execution_simulator_fills_and_reports_finite_prices(executor_cls):
 
 
 def test_execution_simulator_rejects_empty_data():
+    empty_data = pd.DataFrame()
+    executor = TWAPExecutor(target_qty=100)
+
     with pytest.raises(ValueError, match="at least one tick"):
-        simulate(pd.DataFrame(), TWAPExecutor(target_qty=100))
+        simulate(empty_data, executor)

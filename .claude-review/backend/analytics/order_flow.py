@@ -16,7 +16,7 @@ class OFICalculator:
         self._history: dict[int, deque[tuple[datetime, float]]] = {
             window: deque() for window in windows
         }
-        self._sums: dict[int, float] = {window: 0.0 for window in windows}
+        self._sums: dict[int, float] = dict.fromkeys(windows, 0.0)
         self._prev_bid_px: float | None = None
         self._prev_bid_qty: int | None = None
         self._prev_ask_px: float | None = None
@@ -29,24 +29,29 @@ class OFICalculator:
         bpx, bq = s.bids[0].price, s.bids[0].qty
         apx, aq = s.asks[0].price, s.asks[0].qty
 
-        if self._prev_bid_px is None:
+        if self._prev_bid_px is None or self._prev_ask_px is None:
             self._prev_bid_px, self._prev_bid_qty = bpx, bq
             self._prev_ask_px, self._prev_ask_qty = apx, aq
             return 0.0
 
-        if bpx > self._prev_bid_px:
-            e_bid = float(bq)
-        elif bpx == self._prev_bid_px:
-            e_bid = float(bq - (self._prev_bid_qty or 0))
-        else:
-            e_bid = -float(self._prev_bid_qty or 0)
+        prev_bid_px = self._prev_bid_px
+        prev_bid_qty = self._prev_bid_qty or 0
+        prev_ask_px = self._prev_ask_px
+        prev_ask_qty = self._prev_ask_qty or 0
 
-        if apx < self._prev_ask_px:
-            e_ask = -float(aq)
-        elif apx == self._prev_ask_px:
-            e_ask = -float(aq - (self._prev_ask_qty or 0))
+        if bpx > prev_bid_px:
+            e_bid = float(bq)
+        elif bpx == prev_bid_px:
+            e_bid = float(bq - prev_bid_qty)
         else:
-            e_ask = float(self._prev_ask_qty or 0)
+            e_bid = -float(prev_bid_qty)
+
+        if apx < prev_ask_px:
+            e_ask = -float(aq)
+        elif apx == prev_ask_px:
+            e_ask = -float(aq - prev_ask_qty)
+        else:
+            e_ask = float(prev_ask_qty)
 
         ofi = e_bid + e_ask
         for window in self.windows:

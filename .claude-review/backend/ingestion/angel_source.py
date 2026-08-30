@@ -42,12 +42,24 @@ class AngelSource(DataSource):
             )
 
     async def stream(self, symbols: list[str]) -> AsyncIterator[OrderBookSnapshot]:
-        # TODO: implement Angel One WebSocket login + subscribe
-        raise NotImplementedError(
-            "AngelSource.stream() not yet implemented — see comments and Angel One docs."
+        if not symbols:
+            # return an explicit empty async iterator to satisfy the declared return type
+            class _EmptyAsyncIterator:
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    raise StopAsyncIteration
+
+            return _EmptyAsyncIterator()
+
+        # Angel One SmartAPI requires a live demat account, approved API credentials,
+        # and a production websocket implementation. Keep this source explicit so
+        # downstream code fails fast with a clear message instead of leaving a TODO.
+        raise RuntimeError(
+            "AngelSource.stream() is disabled until SmartAPI websocket credentials are "
+            "configured and the Angel One feed is implemented."
         )
-        if False:
-            yield  # type: ignore
 
 
 def _demo_normalize(raw: dict, symbol: str) -> OrderBookSnapshot:

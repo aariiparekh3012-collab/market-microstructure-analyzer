@@ -13,6 +13,36 @@ from backend.analytics.profiler import ProfiledEngine
 from backend.ingestion.mock_source import MockSource
 
 
+def _write_timings_csv(path, timings):
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "tick_id", "symbol", "total_us", "spread_us", "ofi_us",
+            "vwap_us", "volume_us", "kyle_us", "amihud_us", "roll_us",
+            "trade_quote_us", "anomaly_us", "overhead_us",
+        ])
+        for t in timings:
+            writer.writerow([t.tick_id, t.symbol, f"{t.total_us:.2f}",
+                             f"{t.spread_us:.2f}", f"{t.ofi_us:.2f}",
+                             f"{t.vwap_us:.2f}", f"{t.volume_us:.2f}",
+                             f"{t.kyle_us:.2f}", f"{t.amihud_us:.2f}",
+                             f"{t.roll_us:.2f}", f"{t.trade_quote_us:.2f}",
+                             f"{t.anomaly_us:.2f}", f"{t.overhead_us:.2f}"])
+
+
+def _write_summary_json(path, summary):
+    with open(path, "w") as f:
+        json.dump(summary, f, indent=2)
+
+
+async def _write_timings_csv_async(path, timings):
+    await asyncio.to_thread(_write_timings_csv, path, timings)
+
+
+async def _write_summary_json_async(path, summary):
+    await asyncio.to_thread(_write_summary_json, path, summary)
+
+
 async def main(args):
     symbols = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK"]
     source = MockSource(
@@ -32,24 +62,11 @@ async def main(args):
 
     print(f"Processed {total} ticks\n")
 
-    # Save raw timings
+    # Save raw timings (use thread-backed async writers)
     os.makedirs(args.output, exist_ok=True)
     timings_path = os.path.join(args.output, "latency_timings.csv")
     summary_path = os.path.join(args.output, "latency_summary.json")
-    with open(timings_path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "tick_id", "symbol", "total_us", "spread_us", "ofi_us",
-            "vwap_us", "volume_us", "kyle_us", "amihud_us", "roll_us",
-            "trade_quote_us", "anomaly_us", "overhead_us",
-        ])
-        for t in engine.timings:
-            writer.writerow([t.tick_id, t.symbol, f"{t.total_us:.2f}",
-                             f"{t.spread_us:.2f}", f"{t.ofi_us:.2f}",
-                             f"{t.vwap_us:.2f}", f"{t.volume_us:.2f}",
-                             f"{t.kyle_us:.2f}", f"{t.amihud_us:.2f}",
-                             f"{t.roll_us:.2f}", f"{t.trade_quote_us:.2f}",
-                             f"{t.anomaly_us:.2f}", f"{t.overhead_us:.2f}"])
+    await _write_timings_csv_async(timings_path, engine.timings)
 
     # Print summary
     s = engine.summary()
@@ -99,9 +116,8 @@ async def main(args):
 
     print(f"\n{'=' * 65}")
 
-    # Save summary as JSON
-    with open(summary_path, "w") as f:
-        json.dump(s, f, indent=2)
+    # Save summary as JSON (async)
+    await _write_summary_json_async(summary_path, s)
 
     print(f"\nSaved: {timings_path}, {summary_path}")
 

@@ -13,5 +13,3 @@ class DataSource(ABC):
     @abstractmethod
     async def stream(self, symbols: list[str]) -> AsyncIterator[OrderBookSnapshot]:
         raise NotImplementedError
-        if False:
-            yield  # type: ignore
