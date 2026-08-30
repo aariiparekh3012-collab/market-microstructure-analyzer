@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
+
+# Data (do NOT commit tick data)
+data/ticks/**
+data/historical/**
+!data/ticks/.gitkeep
+!data/historical/.gitkeep
+data/*.csv
+data/*.json
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Notebooks
+.ipynb_checkpoints/
+notebooks/*.ipynb_checkpoints/
