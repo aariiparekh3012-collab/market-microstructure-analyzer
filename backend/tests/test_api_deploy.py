@@ -18,7 +18,6 @@ from backend.api import main as api_main
 from backend.api import streamer as sm
 from backend.api.auth import RateLimiter, _limiter
 
-
 # --------------------------------------------------------------------------
 # fixtures
 # --------------------------------------------------------------------------
@@ -68,7 +67,6 @@ def client(monkeypatch, tmp_path):
     with TestClient(api_main.app) as c:
         yield c
 
-
 # --------------------------------------------------------------------------
 # /healthz
 # --------------------------------------------------------------------------
@@ -100,7 +98,6 @@ def test_healthz_returns_503_when_task_dead(client, monkeypatch):
     api_main.streamer._task = None
     r = client.get("/healthz")
     assert r.status_code == 503
-
 
 # --------------------------------------------------------------------------
 # /metrics
@@ -137,7 +134,6 @@ def test_metrics_prometheus_shape(client):
     assert "mma_anomalies_emitted_total 3" in body
     assert 'mma_ws_clients{topic="book:AAA"} 2' in body
     assert 'mma_messages_dropped_total{topic="metrics:AAA"} 7' in body
-
 
 # --------------------------------------------------------------------------
 # /api endpoints — rate limit
@@ -179,7 +175,6 @@ def test_rate_limiter_isolates_keys():
 def test_rate_limiter_disabled_by_zero():
     rl = RateLimiter(per_minute=0)
     assert all(rl.check("anything")[0] for _ in range(100))
-
 
 # --------------------------------------------------------------------------
 # WebSocket auth
