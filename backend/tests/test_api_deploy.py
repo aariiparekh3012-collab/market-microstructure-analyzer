@@ -12,6 +12,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api import auth as auth_mod
 from backend.api import main as api_main
 from backend.api import streamer as sm
 from backend.api.auth import _limiter, RateLimiter
@@ -209,6 +210,14 @@ def test_ws_correct_token_accepts(client, monkeypatch):
         "/ws/orderbook/AAA?token=correct-secret"
     ) as ws:
         ws.close()  # accepted OK
+
+
+def test_ws_unknown_symbol_closes_with_4404_without_allocating_state(client):
+    with pytest.raises(WebSocketDisconnect) as excinfo:
+        with client.websocket_connect("/ws/orderbook/UNKNOWN"):
+            pass
+    assert excinfo.value.code == 4404
+    assert "UNKNOWN" not in api_main.streamer._book_subs
 
 
 def test_ws_missing_token_when_required_closes_4401(client, monkeypatch):
