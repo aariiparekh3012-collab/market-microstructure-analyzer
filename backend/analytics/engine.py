@@ -58,7 +58,7 @@ class _ModuleTimer(Protocol):
     records `time.perf_counter_ns()` into a per-tick timing record.
     """
 
-    def __call__(self, name: str, /) -> "_TimerHandle": ...
+    def __call__(self, name: str, /) -> _TimerHandle: ...
 
 
 class _TimerHandle(Protocol):
@@ -69,7 +69,7 @@ class _TimerHandle(Protocol):
 class _NoopTimer:
     """Zero-overhead timer used by the production Engine."""
 
-    def __call__(self, _name: str, /) -> "_NoopTimer":
+    def __call__(self, _name: str, /) -> _NoopTimer:
         return self
 
     def __enter__(self) -> None:
