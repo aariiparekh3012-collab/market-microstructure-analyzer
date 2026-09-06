@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from backend.api import streamer as sm
-from backend.api.streamer import _anomaly_to_dict, Streamer
+from backend.api.streamer import Streamer, _anomaly_to_dict
 from backend.models import Anomaly, BookLevel, OrderBookSnapshot
 
 
