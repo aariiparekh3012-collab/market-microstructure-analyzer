@@ -6,6 +6,7 @@ Nothing here touches Redis or a real disk.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 
 import pytest
@@ -13,7 +14,8 @@ from fastapi.testclient import TestClient
 
 from backend.api import main as api_main
 from backend.api import streamer as sm
-from backend.api.auth import RateLimiter, _limiter
+from backend.api.auth import _limiter, RateLimiter
+from starlette.websockets import WebSocketDisconnect
 
 
 # --------------------------------------------------------------------------
@@ -33,12 +35,8 @@ class _NoopSource:
     name = "noop"
 
     async def stream(self, symbols):
-        import asyncio
-        try:
-            while True:
-                await asyncio.sleep(3600)
-        finally:
-            return
+        while True:
+            await asyncio.sleep(3600)
         if False:  # pragma: no cover — makes this an async generator
             yield
 
@@ -56,6 +54,7 @@ def client(monkeypatch, tmp_path):
     # Start disabled — WS-auth / rate-limit tests below re-enable per case.
     monkeypatch.setattr(api_main.settings, "ws_auth_token", "")
     monkeypatch.setattr(api_main.settings, "http_rate_limit_per_minute", 0)
+    monkeypatch.setattr(api_main.settings, "symbols", "AAA")
 
     # Fresh Streamer, replacing the module-level singleton the app references.
     fresh = sm.Streamer()
@@ -155,7 +154,6 @@ def test_rate_limit_returns_429_and_retry_after(client, monkeypatch):
     """Enable a 3/min cap and verify the 4th request is 429 with Retry-After."""
     monkeypatch.setattr(api_main.settings, "http_rate_limit_per_minute", 3)
     # Reinstall the process-level limiter with the new cap.
-    from backend.api import auth as auth_mod
     monkeypatch.setattr(auth_mod, "_limiter", RateLimiter(per_minute=3))
     monkeypatch.setattr(api_main, "rate_limit", api_main.rate_limit)  # ensure re-eval
 
@@ -197,10 +195,11 @@ def test_ws_no_token_dev_mode_allows(client):
 def test_ws_wrong_token_closes_with_4401(client, monkeypatch):
     monkeypatch.setattr(api_main.settings, "ws_auth_token", "correct-secret")
 
-    from starlette.websockets import WebSocketDisconnect
-    with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect("/ws/orderbook/AAA?token=wrong") as ws:
-            ws.receive_text()   # will never arrive; the server closed
+    with (
+        pytest.raises(WebSocketDisconnect) as excinfo,
+        client.websocket_connect("/ws/orderbook/AAA?token=wrong") as ws,
+    ):
+        ws.receive_text()   # will never arrive; the server closed
     assert excinfo.value.code == 4401
 
 
@@ -215,7 +214,9 @@ def test_ws_correct_token_accepts(client, monkeypatch):
 def test_ws_missing_token_when_required_closes_4401(client, monkeypatch):
     monkeypatch.setattr(api_main.settings, "ws_auth_token", "correct-secret")
     from starlette.websockets import WebSocketDisconnect
-    with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect("/ws/alerts") as ws:
-            ws.receive_text()
+    with (
+        pytest.raises(WebSocketDisconnect) as excinfo,
+        client.websocket_connect("/ws/alerts") as ws,
+    ):
+        ws.receive_text()
     assert excinfo.value.code == 4401
