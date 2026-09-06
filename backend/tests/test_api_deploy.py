@@ -11,12 +11,12 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from backend.api import auth as auth_mod
 from backend.api import main as api_main
 from backend.api import streamer as sm
-from backend.api.auth import _limiter, RateLimiter
-from starlette.websockets import WebSocketDisconnect
+from backend.api.auth import RateLimiter, _limiter
 
 
 # --------------------------------------------------------------------------
@@ -213,9 +213,11 @@ def test_ws_correct_token_accepts(client, monkeypatch):
 
 
 def test_ws_unknown_symbol_closes_with_4404_without_allocating_state(client):
-    with pytest.raises(WebSocketDisconnect) as excinfo:
-        with client.websocket_connect("/ws/orderbook/UNKNOWN"):
-            pass
+    with (
+        pytest.raises(WebSocketDisconnect) as excinfo,
+        client.websocket_connect("/ws/orderbook/UNKNOWN"),
+    ):
+        pass
     assert excinfo.value.code == 4404
     assert "UNKNOWN" not in api_main.streamer._book_subs
 
