@@ -295,7 +295,6 @@ market-microstructure-analyzer/
 ├── demo/                   # Self-contained offline replay
 ├── notebooks/              # Microstructure + latency analysis
 ├── scripts/                # Sample-data generator, historical fetcher
-├── research/               # Signal research (OFI predictability) + theory PDF
 ├── docs/VALIDATION.md      # Reproducibility & validation boundary
 └── run_{backtest,execution_sim,profiler}.py
 ```

@@ -67,6 +67,12 @@ def test_bucket_rotation_writes_separate_files(tmp_path: Path):
             bids=[BookLevel(100, 100)], asks=[BookLevel(101, 100)],
             ltp=100.5, ltq=1, volume=1,
         ))
+
+    # Rotation finalizes the previous bucket and keeps only the current
+    # symbol bucket open.
+    assert len(ts._writers) == 1
+    early_file = tmp_path / "TEST" / "2026-08-30" / "0900.parquet"
+    assert pq.read_metadata(early_file).num_rows == 5
     ts.close()
 
     files = sorted((tmp_path / "TEST" / "2026-08-30").glob("*.parquet"))
@@ -117,19 +123,20 @@ def test_reopen_bucket_preserves_prior_history(tmp_path: Path):
     assert df["ltp"].iloc[-1] == pytest.approx(100.19)
 
 
-def test_flush_every_triggers_write(tmp_path: Path):
-    """When flush_every rows accumulate in one bucket, they are written
-    without needing a close()."""
+def test_read_day_flushes_and_finalizes_active_bucket(tmp_path: Path):
+    """read_day includes buffered rows and leaves a valid Parquet footer."""
     ts = TickStore(tmp_path, roll_minutes=15, flush_every=4)
     for i in range(9):
         ts.append(_snap(i))
-    # 9 ticks with flush_every=4 → two writer.write_table() calls (rows 0-3
-    # and 4-7); row 8 still buffered.
+
+    df = ts.read_day("TEST", "2026-08-30")
+    assert len(df) == 9
+
     files = list((tmp_path / "TEST" / "2026-08-30").glob("*.parquet"))
     assert len(files) == 1
-    assert pq.read_metadata(files[0]).num_rows == 8   # buffered 9th not yet on disk
-    ts.close()
     assert pq.read_metadata(files[0]).num_rows == 9
+    assert not ts._writers
+    ts.close()
 
 
 # --------------------------------------------------------------------------
