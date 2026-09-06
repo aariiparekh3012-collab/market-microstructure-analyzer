@@ -2,7 +2,25 @@
 
 All notable changes to this project are documented here.
 
-## Unreleased — 2026-08-22
+## 2026-09-06
+
+### Fixed
+
+- Restored a green CI pipeline by resolving Ruff findings and aligning the
+  profiler report with the analytics timing key.
+- Finalized Parquet writers during bucket rotation and before day reads,
+  preventing historical writer accumulation and ensuring readable file footers.
+- Rejected unknown WebSocket symbols before allocating subscription state.
+
+### Changed
+
+- Expanded the backend suite to 51 tests across Python 3.11 and 3.12, with
+  regression coverage for Parquet rotation, active-bucket reads, and WebSocket
+  symbol validation.
+- Removed accidental development artifacts and synchronized the README and
+  validation documentation with the current repository state.
+
+## 2026-08-22
 
 ### Fixed
 
