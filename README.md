@@ -29,7 +29,7 @@ five symbols, all nine modules enabled):
 |---|---|
 | Per-tick latency (P50 / P95 / P99) | **65.0 µs / 132.5 µs / 313.3 µs** |
 | Sustained throughput | **~12,400 ticks/sec** |
-| Test suite | 16 tests, passing in 6.82 s |
+| Test suite | **51 tests**, passing on Python 3.11 and 3.12 |
 
 Numbers are in-process computation only, not exchange-to-screen. Rerun with
 `python run_profiler.py --ticks 15000 --seed 42`.
@@ -290,7 +290,7 @@ market-microstructure-analyzer/
 │   ├── api/                # FastAPI app + WebSocket streamer
 │   ├── ingestion/          # mock_source, angel_source (stub)
 │   ├── storage/            # Parquet tick store + Redis state cache
-│   └── tests/              # 16 tests: analytics, engine warm-up, reproducibility, API smoke
+│   └── tests/              # 51 tests: analytics, API/deployment, storage, research tools
 ├── frontend/               # React + Vite dashboard
 ├── demo/                   # Self-contained offline replay
 ├── notebooks/              # Microstructure + latency analysis
