@@ -71,7 +71,7 @@ async def main(args):
         ("volume", "Volume"), ("kyle", "Kyle Lambda"),
         ("amihud", "Amihud"), ("roll", "Roll Spread"),
         ("trade_quote", "Trade/Quote Var"),
-        ("anomaly_detection", "Anomaly Detection"),
+        ("anomaly", "Anomaly Detection"),
     ]:
         ms = s["modules"][name]
         pct = s["mean_breakdown_pct"][name]

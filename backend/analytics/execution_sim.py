@@ -64,7 +64,7 @@ class _BookArrays:
     ask_qty: np.ndarray
 
     @classmethod
-    def from_df(cls, df: pd.DataFrame) -> "_BookArrays":
+    def from_df(cls, df: pd.DataFrame) -> _BookArrays:
         def _stack(prefix: str, field: str, dtype) -> np.ndarray:
             cols = [f"{prefix}_{field}_{i}" for i in range(1, 6)]
             missing = [c for c in cols if c not in df.columns]

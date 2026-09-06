@@ -65,6 +65,7 @@ class TickStore:
 
         self._buffers: dict[_BucketKey, list[dict]] = defaultdict(list)
         self._writers: dict[_BucketKey, pq.ParquetWriter] = {}
+        self._active_key_by_symbol: dict[str, _BucketKey] = {}
         self._schema: pa.Schema | None = None
         self._lock = threading.Lock()
 
@@ -81,6 +82,12 @@ class TickStore:
     def append(self, snap: OrderBookSnapshot) -> None:
         key = self._bucket_key(snap)
         with self._lock:
+            previous = self._active_key_by_symbol.get(snap.symbol)
+            if previous is not None and previous != key:
+                self._flush_key_locked(previous)
+                self._close_writer_locked(previous)
+            self._active_key_by_symbol[snap.symbol] = key
+
             self._buffers[key].append(_snapshot_to_row(snap))
             if len(self._buffers[key]) >= self.flush_every:
                 self._flush_key_locked(key)
@@ -127,35 +134,52 @@ class TickStore:
 
         writer.write_table(table.cast(self._schema, safe=False))
 
+    def _close_writer_locked(self, key: _BucketKey) -> None:
+        writer = self._writers.pop(key, None)
+        if writer is None:
+            return
+        try:
+            writer.close()
+        except Exception:
+            log.exception("TickStore: writer close failed for %s", key)
+
     def flush(self) -> None:
-        """Flush any buffered rows but keep writers open."""
+        """Flush any buffered rows but keep active writers open."""
         with self._lock:
-            for key in list(self._buffers.keys()):
+            for key in list(self._buffers):
                 self._flush_key_locked(key)
 
     def close(self) -> None:
         """Flush and close every writer. Idempotent — safe on shutdown."""
         with self._lock:
-            for key in list(self._buffers.keys()):
+            for key in list(self._buffers):
                 self._flush_key_locked(key)
-            for key, w in list(self._writers.items()):
-                try:
-                    w.close()
-                except Exception:
-                    log.exception("TickStore: writer close failed for %s", key)
-                self._writers.pop(key, None)
+            for key in list(self._writers):
+                self._close_writer_locked(key)
+            self._active_key_by_symbol.clear()
 
     def read_day(self, symbol: str, day: str) -> pd.DataFrame:
+        # Parquet footers are written only when a writer closes. Finalize
+        # matching buckets before attempting to read them.
+        with self._lock:
+            matching_buffers = [
+                key for key in self._buffers if key[0] == symbol and key[1] == day
+            ]
+            for key in matching_buffers:
+                self._flush_key_locked(key)
+            matching_writers = [
+                key for key in self._writers if key[0] == symbol and key[1] == day
+            ]
+            for key in matching_writers:
+                self._close_writer_locked(key)
+
         daydir = self.root / symbol / day
         if not daydir.exists():
             return pd.DataFrame()
-        # Buckets that are still being written need a flush before their
-        # newest rows are visible on disk.
-        self.flush()
         frames = [pd.read_parquet(p) for p in sorted(daydir.glob("*.parquet"))]
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-    def __enter__(self) -> "TickStore":
+    def __enter__(self) -> TickStore:
         return self
 
     def __exit__(self, *_exc: object) -> None:

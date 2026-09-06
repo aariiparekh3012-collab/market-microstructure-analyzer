@@ -173,6 +173,16 @@ def recent_alerts(limit: int = 100) -> list[dict]:
 # WebSocket endpoints
 # ---------------------------------------------------------------------------
 
+async def _accept_known_symbol(ws: WebSocket, symbol: str) -> str | None:
+    """Validate a symbol before allocating subscription state."""
+    normalized = symbol.upper()
+    if normalized not in settings.symbol_list:
+        await ws.close(code=4404, reason="unknown symbol")
+        return None
+    await ws.accept()
+    return normalized
+
+
 async def _pump(ws: WebSocket, queue: asyncio.Queue) -> None:
     try:
         while True:
@@ -191,8 +201,9 @@ async def _pump(ws: WebSocket, queue: asyncio.Queue) -> None:
 async def ws_orderbook(ws: WebSocket, symbol: str) -> None:
     if not await require_ws_auth(ws):
         return
-    await ws.accept()
-    symbol = symbol.upper()
+    symbol = await _accept_known_symbol(ws, symbol)
+    if symbol is None:
+        return
     q = streamer.subscribe_book(symbol)
     try:
         await _pump(ws, q)
@@ -204,8 +215,9 @@ async def ws_orderbook(ws: WebSocket, symbol: str) -> None:
 async def ws_metrics(ws: WebSocket, symbol: str) -> None:
     if not await require_ws_auth(ws):
         return
-    await ws.accept()
-    symbol = symbol.upper()
+    symbol = await _accept_known_symbol(ws, symbol)
+    if symbol is None:
+        return
     q = streamer.subscribe_metrics(symbol)
     try:
         await _pump(ws, q)
