@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from backend.api import streamer as sm
-from backend.api.streamer import Streamer, _anomaly_to_dict
+from backend.api.streamer import _anomaly_to_dict, Streamer
 from backend.models import Anomaly, BookLevel, OrderBookSnapshot
 
 
@@ -171,7 +171,6 @@ def test_is_healthy_fresh_ticks_ok(stub_streamer):
 
 def test_streamer_restarts_source_after_crash(stub_streamer, monkeypatch):
     """A source that crashes then works: streamer restarts once, counter goes to 1."""
-    src = _CrashingSource(raise_after=3)
     # Make source recovering: second call gives 5 ticks then returns cleanly.
     call_count = {"n": 0}
 
