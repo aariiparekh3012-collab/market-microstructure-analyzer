@@ -50,7 +50,7 @@ npm run build
 ## Expected validation outcome
 
 - Lint completes without findings.
-- Fifteen backend tests pass.
+- Fifty-one backend tests pass on Python 3.11 and 3.12.
 - Backend test coverage is at least the CI floor of 80%.
 - The deterministic generator creates equal tick counts for all five symbols.
 - Backtest trade P&L reconciles to final equity less initial capital.
@@ -77,10 +77,3 @@ correctness, or the classical econometric interpretation of adapted tick-level
 metrics. Those require licensed real data, domain review, and out-of-sample
 empirical testing.
 
-## Legacy reports
-
-`Market_Microstructure_Analyzer_Report.pdf` and
-`research/Microstructure_Theory_and_Implementation.pdf` were generated before
-this repair. They contain outdated implementation and benchmark statements and
-should be treated as historical artifacts until regenerated from a validated
-release.
