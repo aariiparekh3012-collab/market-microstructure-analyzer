@@ -76,7 +76,8 @@ asyncio.run(main())
 ```
 
 The connection receives analytics continuously. This example prints the first
-message and closes.
+message and closes. When `WS_AUTH_TOKEN` is configured, append
+`?token=<configured-token>` to the WebSocket URL.
 
 ### 4. Retrieve accumulated state
 
@@ -93,14 +94,32 @@ configured anomaly threshold.
 
 ## REST API
 
-All REST responses use JSON. The service currently has no authentication layer.
-Cross-origin requests are allowed from any origin by the application-level CORS
-configuration.
+Application REST responses use JSON. The `/api/*` endpoints have no identity
+authentication, but they share a fixed-window, per-client-IP rate limiter
+(default: 120 requests per minute). Cross-origin access is controlled by
+`CORS_ALLOW_ORIGINS`, which defaults to `*` for local development.
+
+### `GET /healthz`
+
+Reports liveness and readiness. It returns `200 OK` while the ingestion task is
+alive and ticks are fresh (or the service is within its 30-second startup grace
+period), and `503 Service Unavailable` if the task is dead or ticks are stale.
+
+The JSON response includes `ok`, `task_alive`, `ticks_ingested`,
+`source_restarts`, `seconds_since_last_tick`, and `warming_up`.
+
+### `GET /metrics`
+
+Returns Prometheus text format for ingestion, persistence failures, source
+restarts, anomalies, last-tick lag, connected WebSocket clients, and dropped
+subscriber messages. This endpoint is not rate-limited by the application;
+restrict it at the reverse proxy in an internet-facing deployment.
 
 ### `GET /api/health`
 
-Reports whether the application is serving requests and identifies the selected
-data source and configured symbols.
+Provides the compatibility health response and identifies the selected data
+source and configured symbols. Prefer `GET /healthz` for deployment probes.
+This endpoint returns HTTP 200 with `status` set to `ok` or `degraded`.
 
 **Parameters:** none
 
@@ -149,7 +168,8 @@ current process started. The path value is normalised to uppercase.
 ```
 
 Price-bucket keys are strings because JSON object keys must be strings. Values
-are non-negative changes in cumulative volume assigned to each price bucket.
+are signed volume changes assigned to each price bucket, so negative values are
+valid.
 
 **No data response:** `404 Not Found`
 
@@ -195,8 +215,10 @@ returns `422 Unprocessable Entity`.
 ## WebSocket API
 
 WebSocket endpoints send JSON text messages from the server to the client. A
-client does not need to send subscription messages after connecting. Use `ws://`
-for local HTTP deployments and `wss://` when the service is hosted behind HTTPS.
+client does not need to send subscription messages after connecting. When
+`WS_AUTH_TOKEN` is non-empty, clients must pass the matching shared secret as
+the `token` query parameter. Use `ws://` for local HTTP deployments and
+`wss://` when the service is hosted behind HTTPS.
 
 Connections are process-local and are not replayed. Slow subscribers use a
 bounded queue; when it fills, the oldest queued message is discarded before a
@@ -300,11 +322,12 @@ appropriate than a continuous stream.
 
 ### Symbol and connection behaviour
 
-The service does not currently reject an unknown WebSocket symbol. Such a
-connection remains open but receives no messages because the streamer only
-publishes configured symbols. Obtain valid values from `GET /api/symbols` before
-subscribing. If the server restarts, clients must reconnect and accumulated
-process-local analytics state begins again.
+Symbol-specific WebSocket endpoints normalise symbols to uppercase and reject
+unknown symbols before allocating subscription state (application close code
+`4404`). When WebSocket authentication is enabled, a missing or incorrect token
+is rejected before subscription registration (application close code `4401`).
+Obtain valid symbols from `GET /api/symbols`. If the server restarts, clients
+must reconnect and accumulated process-local analytics state begins again.
 
 ## Configuration
 
@@ -322,6 +345,11 @@ uppercase forms shown below.
 | `ANGEL_TOTP_SECRET` | empty | Angel One TOTP secret; required only for the experimental source |
 | `BACKEND_HOST` | `0.0.0.0` | Intended backend bind host |
 | `BACKEND_PORT` | `8000` | Intended backend bind port |
+| `CORS_ALLOW_ORIGINS` | `*` | Comma-separated allowed browser origins; replace `*` in production |
+| `LOG_LEVEL` | `INFO` | Application log level |
+| `LOG_JSON` | `false` | Emit one-line JSON logs when enabled |
+| `WS_AUTH_TOKEN` | empty | Shared secret required by WebSocket clients when configured |
+| `HTTP_RATE_LIMIT_PER_MINUTE` | `120` | Per-client-IP limit for `/api/*`; `0` disables it |
 | `TICK_STORE_DIR` | `./data/ticks` | Directory for rolled tick data |
 | `PARQUET_ROLL_MINUTES` | `15` | Tick-store roll interval in minutes |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection; falls back to in-memory state when unavailable |
@@ -341,9 +369,10 @@ market-data connector.
 - WebSocket payloads are not versioned and currently have no envelope or
   sequence number.
 - WebSocket clients must implement their own reconnect and resubscription logic.
-- REST and WebSocket interfaces currently have no authentication or rate
-  limiting; do not expose the development service directly to an untrusted
-  network.
+- The built-in controls are deliberately minimal: `/api/*` uses a per-process
+  IP rate limiter, WebSockets use an optional shared secret, and `/healthz`
+  and `/metrics` remain unauthenticated. Use a reverse proxy, WAF, OAuth2
+  proxy, or mTLS as appropriate before exposing the service publicly.
 - Mock or replayed output validates the software pipeline, not exchange-feed
   correctness, predictive power, or profitability.
 
