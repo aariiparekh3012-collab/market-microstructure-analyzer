@@ -49,6 +49,7 @@ def client(monkeypatch, tmp_path):
     # Deterministic, self-contained streamer.
     monkeypatch.setattr(sm.settings, "redis_url", "")
     monkeypatch.setattr(sm.settings, "tick_store_dir", tmp_path)
+    monkeypatch.setattr(sm.settings, "data_quarantine_path", tmp_path / "rejected.jsonl")
     monkeypatch.setattr(sm, "make_source", lambda: _NoopSource())
 
     # Start disabled — WS-auth / rate-limit tests below re-enable per case.
@@ -109,6 +110,9 @@ def test_metrics_prometheus_shape(client):
     api_main.streamer.metrics.anomalies_emitted = 3
     api_main.streamer.metrics.messages_dropped["metrics:AAA"] = 7
     api_main.streamer.metrics.ws_clients["book:AAA"] = 2
+    api_main.streamer.data_quality.stats.rejected = 2
+    api_main.streamer.data_quality.stats.repaired = 1
+    api_main.streamer.data_quality.stats.rejected_by_reason["invalid_ltp"] = 2
 
     r = client.get("/metrics")
     assert r.status_code == 200
@@ -122,6 +126,10 @@ def test_metrics_prometheus_shape(client):
         "mma_ticks_persist_failed_total",
         "mma_source_restarts_total",
         "mma_anomalies_emitted_total",
+        "mma_ticks_rejected_total",
+        "mma_ticks_repaired_total",
+        "mma_quarantine_write_failures_total",
+        "mma_ticks_rejected_reason_total",
         "mma_last_tick_lag_seconds",
         "mma_ws_clients",
         "mma_messages_dropped_total",
@@ -134,6 +142,18 @@ def test_metrics_prometheus_shape(client):
     assert "mma_anomalies_emitted_total 3" in body
     assert 'mma_ws_clients{topic="book:AAA"} 2' in body
     assert 'mma_messages_dropped_total{topic="metrics:AAA"} 7' in body
+    assert "mma_ticks_rejected_total 2" in body
+    assert "mma_ticks_repaired_total 1" in body
+    assert 'mma_ticks_rejected_reason_total{reason="invalid_ltp"} 2' in body
+
+
+def test_data_quality_endpoint_returns_current_process_summary(client):
+    response = client.get("/api/data-quality")
+
+    assert response.status_code == 200
+    assert response.json()["received"] == 0
+    assert response.json()["accepted"] == 0
+    assert response.json()["repair_policy"] == "symbol_trim_and_uppercase_only"
 
 # --------------------------------------------------------------------------
 # /api endpoints — rate limit

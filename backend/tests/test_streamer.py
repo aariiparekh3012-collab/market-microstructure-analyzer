@@ -51,11 +51,13 @@ class _StubTickStore:
 
 
 @pytest.fixture
-def stub_streamer(monkeypatch):
+def stub_streamer(monkeypatch, tmp_path):
     """Streamer with in-memory cache and stubbed tick store."""
     # Force the in-memory cache path (redis_url=""); the Streamer's __init__
     # reads settings.redis_url so we set it before instantiation.
     monkeypatch.setattr(sm.settings, "redis_url", "")
+    monkeypatch.setattr(sm.settings, "symbols", "TEST")
+    monkeypatch.setattr(sm.settings, "data_quarantine_path", tmp_path / "rejected.jsonl")
     s = Streamer()
     s.tick_store = _StubTickStore()
     return s

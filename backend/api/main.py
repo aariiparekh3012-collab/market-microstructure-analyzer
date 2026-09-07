@@ -102,6 +102,7 @@ def healthz() -> Response:
 def metrics() -> Response:
     """Prometheus text-format metrics. No client library dependency."""
     m = streamer.metrics
+    dq = streamer.data_quality.stats
     now = time.perf_counter()
     lag = (now - m.last_tick_ts) if m.last_tick_ts else -1.0
 
@@ -118,6 +119,15 @@ def metrics() -> Response:
         "# HELP mma_anomalies_emitted_total Anomalies produced by the analytics engine.",
         "# TYPE mma_anomalies_emitted_total counter",
         f"mma_anomalies_emitted_total {m.anomalies_emitted}",
+        "# HELP mma_ticks_rejected_total Snapshots rejected by the data-quality gate.",
+        "# TYPE mma_ticks_rejected_total counter",
+        f"mma_ticks_rejected_total {dq.rejected}",
+        "# HELP mma_ticks_repaired_total Snapshots accepted after conservative normalization.",
+        "# TYPE mma_ticks_repaired_total counter",
+        f"mma_ticks_repaired_total {dq.repaired}",
+        "# HELP mma_quarantine_write_failures_total Rejected snapshots that could not be written to quarantine.",
+        "# TYPE mma_quarantine_write_failures_total counter",
+        f"mma_quarantine_write_failures_total {dq.quarantine_write_failures}",
         "# HELP mma_last_tick_lag_seconds Seconds since the most recent ingested tick (-1 if none yet).",
         "# TYPE mma_last_tick_lag_seconds gauge",
         f"mma_last_tick_lag_seconds {lag:.3f}",
@@ -133,6 +143,13 @@ def metrics() -> Response:
     ]
     for topic, n in sorted(m.messages_dropped.items()):
         lines.append(f'mma_messages_dropped_total{{topic="{topic}"}} {n}')
+
+    lines += [
+        "# HELP mma_ticks_rejected_reason_total Rejected snapshots by validation reason.",
+        "# TYPE mma_ticks_rejected_reason_total counter",
+    ]
+    for reason, n in sorted(dq.rejected_by_reason.items()):
+        lines.append(f'mma_ticks_rejected_reason_total{{reason="{reason}"}} {n}')
 
     return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
@@ -154,6 +171,12 @@ def health() -> dict:
 @app.get("/api/symbols", dependencies=[Depends(rate_limit)])
 def symbols() -> list[str]:
     return settings.symbol_list
+
+
+@app.get("/api/data-quality", dependencies=[Depends(rate_limit)])
+def data_quality() -> dict:
+    """Current-process validation, repair, and quarantine counters."""
+    return streamer.data_quality_summary()
 
 
 @app.get("/api/volume-profile/{symbol}", dependencies=[Depends(rate_limit)])

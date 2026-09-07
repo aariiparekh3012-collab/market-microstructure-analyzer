@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # --- storage ------------------------------------------------------
     tick_store_dir: Path = Path("./data/ticks")
     parquet_roll_minutes: int = 15
+    data_quarantine_path: Path = Path("./data/quarantine/rejected_ticks.jsonl")
 
     # --- redis --------------------------------------------------------
     # Set to empty string to skip Redis entirely and use the in-memory cache.

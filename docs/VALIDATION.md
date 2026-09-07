@@ -20,6 +20,7 @@ why each change was required, and how to verify the resulting system.
 | Execution simulator | Labelled last-fill movement as market impact | Reports last-fill slippage and documents replay VWAP look-ahead | Output no longer claims causal impact the simulator does not model |
 | Profiler | Timed five modules while describing nine | Times all nine implemented modules | Module breakdown and total timing cover the same analytics path |
 | Frontend | Read `m.ts` while the backend emitted `timestamp` | Uses the backend field and chooses secure WebSockets on HTTPS | Chart points receive timestamps and deployed HTTPS pages use `wss://` |
+| Data quality | Malformed snapshots could reach storage, analytics, and subscribers | Added conservative validation before side effects plus JSONL quarantine | Invalid books, fields, ordering, and volume regressions are contained and observable |
 
 ## Clean validation sequence
 
@@ -50,7 +51,7 @@ npm run build
 ## Expected validation outcome
 
 - Lint completes without findings.
-- Fifty-one backend tests pass on Python 3.11 and 3.12.
+- Fifty-seven backend tests pass on Python 3.11 and 3.12.
 - Backend test coverage is at least the CI floor of 80%.
 - The deterministic generator creates equal tick counts for all five symbols.
 - Backtest trade P&L reconciles to final equity less initial capital.
@@ -76,4 +77,3 @@ They do not validate predictive power, execution profitability, exchange-feed
 correctness, or the classical econometric interpretation of adapted tick-level
 metrics. Those require licensed real data, domain review, and out-of-sample
 empirical testing.
-

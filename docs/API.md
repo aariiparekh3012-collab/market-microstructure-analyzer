@@ -110,10 +110,11 @@ The JSON response includes `ok`, `task_alive`, `ticks_ingested`,
 
 ### `GET /metrics`
 
-Returns Prometheus text format for ingestion, persistence failures, source
-restarts, anomalies, last-tick lag, connected WebSocket clients, and dropped
-subscriber messages. This endpoint is not rate-limited by the application;
-restrict it at the reverse proxy in an internet-facing deployment.
+Returns Prometheus text format for ingestion, persistence failures, data-quality
+rejections and repairs, quarantine-write failures, source restarts, anomalies,
+last-tick lag, connected WebSocket clients, and dropped subscriber messages.
+This endpoint is not rate-limited by the application; restrict it at the reverse
+proxy in an internet-facing deployment.
 
 ### `GET /api/health`
 
@@ -147,6 +148,31 @@ Returns the uppercase symbols parsed from the `SYMBOLS` environment variable.
 ```json
 ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK"]
 ```
+
+### `GET /api/data-quality`
+
+Returns current-process validation and quarantine counters. `repaired` only
+counts accepted snapshots whose symbol was trimmed or uppercased; other defects
+are not silently altered.
+
+```json
+{
+  "received": 1200,
+  "accepted": 1197,
+  "rejected": 3,
+  "repaired": 4,
+  "quarantine_writes": 3,
+  "quarantine_write_failures": 0,
+  "rejected_by_reason": {
+    "crossed_or_locked_book": 2,
+    "non_monotonic_timestamp": 1
+  },
+  "repair_policy": "symbol_trim_and_uppercase_only"
+}
+```
+
+Rejected snapshots are stopped before persistence, analytics, cache updates,
+or WebSocket broadcast. They are appended to `DATA_QUARANTINE_PATH` as JSONL.
 
 ### `GET /api/volume-profile/{symbol}`
 
@@ -352,6 +378,7 @@ uppercase forms shown below.
 | `HTTP_RATE_LIMIT_PER_MINUTE` | `120` | Per-client-IP limit for `/api/*`; `0` disables it |
 | `TICK_STORE_DIR` | `./data/ticks` | Directory for rolled tick data |
 | `PARQUET_ROLL_MINUTES` | `15` | Tick-store roll interval in minutes |
+| `DATA_QUARANTINE_PATH` | `./data/quarantine/rejected_ticks.jsonl` | Append-only JSONL file for rejected snapshots |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis connection; falls back to in-memory state when unavailable |
 
 `BACKEND_HOST` and `BACKEND_PORT` are application settings; the documented
