@@ -52,3 +52,25 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build wheel
+        run: |
+          pip install uv
+          uv build --wheel
+      - name: Install wheel in a clean environment
+        run: |
+          python -m venv "$RUNNER_TEMP/mma-wheel-smoke"
+          source "$RUNNER_TEMP/mma-wheel-smoke/bin/activate"
+          python -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          python -c "from market_microstructure import Anomaly, BookLevel, Engine, OrderBookSnapshot"

@@ -76,6 +76,24 @@ per-window deques and running sums (O(1) amortised per tick, not O(n) rescans).
 
 **Prerequisites:** Python 3.11+, Node 18+ (only for the dashboard).
 
+### Python package
+
+Install the project as a package when you want to reuse the analytics engine
+without starting the API service:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install .
+```
+
+The supported public imports are exposed through the stable facade:
+
+```python
+from market_microstructure import Engine, OrderBookSnapshot
+
+engine = Engine()
+```
+
 ### Backend
 
 ```bash
