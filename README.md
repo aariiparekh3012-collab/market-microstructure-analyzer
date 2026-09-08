@@ -29,7 +29,7 @@ five symbols, all nine modules enabled):
 |---|---|
 | Per-tick latency (P50 / P95 / P99) | **65.0 µs / 132.5 µs / 313.3 µs** |
 | Sustained throughput | **~12,400 ticks/sec** |
-| Test suite | **57 tests**, passing on Python 3.11 and 3.12 |
+| Test suite | **64 tests**, passing on Python 3.11 and 3.12 |
 
 Numbers are in-process computation only, not exchange-to-screen. Rerun with
 `python run_profiler.py --ticks 15000 --seed 42`.
@@ -128,6 +128,7 @@ OFI, cumulative signed volume, and live alerts, per symbol.
 ```bash
 python scripts/generate_sample_data.py --ticks-per-symbol 1000 --seed 42
 python run_backtest.py            # OFI z-score strategy, 80 trades, PnL=125.89
+python run_walk_forward.py        # chronological holdouts, harsh-cost stability gate
 python run_execution_sim.py       # TWAP vs replay-VWAP, slippage & IS
 python run_profiler.py --ticks 15000 --seed 42
 ```
@@ -193,6 +194,11 @@ max drawdown, profit factor, win rate.
 
 > Backtest P&L on synthetic data validates the pipeline end-to-end. It is
 > not evidence of a deployable edge and is not annualised, on purpose.
+
+**Walk-forward evaluation** — expanding training windows choose parameters
+before each untouched chronological test block. The default applies 10 bps per
+side, then fails strategies with negative after-cost profitability or unstable
+fold results. See [`docs/WALK_FORWARD.md`](docs/WALK_FORWARD.md).
 
 **Execution simulator** — TWAP vs an ex-post replay VWAP schedule, walking
 five-level book depth per child order. Reports arrival slippage, VWAP
@@ -311,18 +317,18 @@ across machines.
 ```
 market-microstructure-analyzer/
 ├── backend/
-│   ├── analytics/          # 9 estimators + engine + profiler + backtester + execution_sim
+│   ├── analytics/          # estimators, engine, profiler, backtest + walk-forward tools
 │   ├── api/                # FastAPI app + WebSocket streamer
 │   ├── ingestion/          # mock_source, angel_source (stub)
 │   ├── storage/            # Parquet tick store + Redis state cache
 │   ├── data_quality.py     # conservative validation + JSONL quarantine
-│   └── tests/              # 57 tests: analytics, API, storage, quality, research tools
+│   └── tests/              # 64 tests: analytics, API, storage, quality, research tools
 ├── frontend/               # React + Vite dashboard
 ├── demo/                   # Self-contained offline replay
 ├── notebooks/              # Microstructure + latency analysis
 ├── scripts/                # Sample-data generator, historical fetcher
 ├── docs/VALIDATION.md      # Reproducibility & validation boundary
-└── run_{backtest,execution_sim,profiler}.py
+└── run_{backtest,walk_forward,execution_sim,profiler}.py
 ```
 
 ---
