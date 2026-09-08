@@ -21,6 +21,7 @@ why each change was required, and how to verify the resulting system.
 | Profiler | Timed five modules while describing nine | Times all nine implemented modules | Module breakdown and total timing cover the same analytics path |
 | Frontend | Read `m.ts` while the backend emitted `timestamp` | Uses the backend field and chooses secure WebSockets on HTTPS | Chart points receive timestamps and deployed HTTPS pages use `wss://` |
 | Data quality | Malformed snapshots could reach storage, analytics, and subscribers | Added conservative validation before side effects plus JSONL quarantine | Invalid books, fields, ordering, and volume regressions are contained and observable |
+| Out-of-sample evaluation | One full-sample backtest could hide parameter overfitting and unstable periods | Added expanding-window selection, chronological holdouts, harsh costs, and a stability gate | Future observations never select parameters and inconsistent folds fail explicitly |
 
 ## Clean validation sequence
 
@@ -31,11 +32,12 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-ruff check backend scripts run_backtest.py run_execution_sim.py run_profiler.py tests
+ruff check backend scripts run_backtest.py run_walk_forward.py run_execution_sim.py run_profiler.py tests
 pytest --cov=backend --cov-report=term-missing
 
 python scripts/generate_sample_data.py --ticks-per-symbol 1000 --seed 42
 python run_backtest.py
+python run_walk_forward.py
 python run_execution_sim.py
 python run_profiler.py --ticks 15000 --seed 42
 ```
@@ -51,10 +53,11 @@ npm run build
 ## Expected validation outcome
 
 - Lint completes without findings.
-- Fifty-seven backend tests pass on Python 3.11 and 3.12.
+- Sixty-four backend tests pass on Python 3.11 and 3.12.
 - Backend test coverage is at least the CI floor of 80%.
 - The deterministic generator creates equal tick counts for all five symbols.
 - Backtest trade P&L reconciles to final equity less initial capital.
+- Walk-forward folds remain chronological and report harsh-cost stability failures.
 - Execution simulations produce finite fills for TWAP and replay VWAP.
 - The profiler processes the requested number of ticks and writes raw timings
   plus a JSON summary.
