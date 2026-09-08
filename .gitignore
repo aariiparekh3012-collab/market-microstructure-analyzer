@@ -24,6 +24,8 @@ credentials.json
 data/ticks/**
 data/historical/**
 data/quarantine/**
+data/walk_forward_folds.csv
+data/walk_forward_summary.json
 !data/ticks/.gitkeep
 !data/historical/.gitkeep
 data/*.csv
