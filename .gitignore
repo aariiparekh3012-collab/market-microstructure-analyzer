@@ -23,6 +23,7 @@ credentials.json
 # Data (do NOT commit tick data)
 data/ticks/**
 data/historical/**
+data/quarantine/**
 !data/ticks/.gitkeep
 !data/historical/.gitkeep
 data/*.csv

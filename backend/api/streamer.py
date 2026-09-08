@@ -14,6 +14,9 @@ Deployment properties this module owns:
   and whether a tick has been processed within `stale_after_s` seconds; used
   by the `/healthz` endpoint.
 * **Metrics.** Plain counters exposed for `/metrics` — no Prometheus dep.
+* **Data quality.** Snapshots pass a conservative integrity gate before any
+  persistence, analytics, cache, or subscriber side effect. Rejected snapshots
+  are quarantined as JSONL and counted by reason.
 """
 from __future__ import annotations
 
@@ -29,6 +32,7 @@ from typing import Any
 
 from ..analytics.engine import Engine
 from ..config import settings
+from ..data_quality import DataQualityGate, QuarantineStore
 from ..ingestion.factory import make_source
 from ..models import Anomaly, OrderBookSnapshot
 from ..storage.state_cache import StateCache, _serialize_snapshot
@@ -60,6 +64,8 @@ class Streamer:
         self.engine = Engine()
         self.cache = StateCache(settings.redis_url)
         self.tick_store = TickStore(settings.tick_store_dir, settings.parquet_roll_minutes)
+        self.data_quality = DataQualityGate(settings.symbol_list)
+        self.quarantine = QuarantineStore(settings.data_quarantine_path)
         self.metrics = StreamerMetrics()
 
         self._book_subs: dict[str, set[asyncio.Queue]] = defaultdict(set)
@@ -152,6 +158,9 @@ class Streamer:
     def volume_profile(self, symbol: str) -> dict:
         return {str(k): v for k, v in self.engine.volume_profile(symbol).items()}
 
+    def data_quality_summary(self) -> dict:
+        return self.data_quality.summary()
+
     # ---- ingestion loop ------------------------------------------------
 
     async def _run_supervised(self) -> None:
@@ -187,6 +196,22 @@ class Streamer:
             await self._handle(snap)
 
     async def _handle(self, snap: OrderBookSnapshot) -> None:
+        decision = self.data_quality.validate(snap)
+        if not decision.accepted:
+            try:
+                await asyncio.to_thread(self.quarantine.append, decision)
+            except Exception:
+                self.data_quality.record_quarantine_write(success=False)
+                log.exception(
+                    "quarantine append failed for %s: %s",
+                    decision.original_symbol,
+                    decision.rejection_reasons,
+                )
+            else:
+                self.data_quality.record_quarantine_write(success=True)
+            return
+
+        snap = decision.snapshot
         # Storage runs off-loop so a slow disk doesn't back up ingestion.
         # A failure to persist is counted but never kills the loop.
         try:

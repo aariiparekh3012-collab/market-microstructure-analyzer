@@ -29,7 +29,7 @@ five symbols, all nine modules enabled):
 |---|---|
 | Per-tick latency (P50 / P95 / P99) | **65.0 µs / 132.5 µs / 313.3 µs** |
 | Sustained throughput | **~12,400 ticks/sec** |
-| Test suite | **51 tests**, passing on Python 3.11 and 3.12 |
+| Test suite | **57 tests**, passing on Python 3.11 and 3.12 |
 
 Numbers are in-process computation only, not exchange-to-screen. Rerun with
 `python run_profiler.py --ticks 15000 --seed 42`.
@@ -224,17 +224,24 @@ The backend image is multi-stage, runs as a non-root user, defines a
 container-level `HEALTHCHECK`, and reads all tunables from environment
 variables — see [`.env.example`](.env.example) for the full list
 (`DATA_SOURCE`, `SYMBOLS`, `CORS_ALLOW_ORIGINS`, `LOG_JSON`, `LOG_LEVEL`,
-`REDIS_URL`, `TICK_STORE_DIR`, `PARQUET_ROLL_MINUTES`).
+`REDIS_URL`, `TICK_STORE_DIR`, `PARQUET_ROLL_MINUTES`,
+`DATA_QUARANTINE_PATH`).
 
 ### Operational endpoints
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /healthz` | Liveness + readiness. Returns **503** when the ingestion task is dead or ticks have been stale for more than 30 s. Wire this to your orchestrator's health probe. |
-| `GET /metrics` | Prometheus text-format counters and gauges: `mma_ticks_ingested_total`, `mma_source_restarts_total`, `mma_last_tick_lag_seconds`, `mma_ws_clients{topic=…}`, `mma_messages_dropped_total{topic=…}`, `mma_anomalies_emitted_total`, `mma_ticks_persist_failed_total`. |
+| `GET /metrics` | Prometheus text-format counters and gauges for ingestion, persistence, data-quality rejections and repairs, source restarts, WebSocket clients, dropped messages, and anomalies. |
+| `GET /api/data-quality` | Current-process validation totals, conservative repairs, quarantine writes, failures, and rejection counts by reason. |
 
 ### Resilience properties
 
+- **Bad ticks are contained.** Every snapshot passes a conservative integrity
+  gate before persistence, analytics, caching, or broadcast. Only symbol
+  whitespace/casing is repaired. Invalid books, fields, timestamp order, and
+  same-session cumulative-volume regressions are appended to a JSONL quarantine
+  and exposed through `/api/data-quality` plus Prometheus counters.
 - **Source reconnect.** If the data source raises, the streamer backs off
   exponentially (1 s → 60 s cap) and reconnects instead of crashing the API.
   Restart count is exposed as `mma_source_restarts_total`.
@@ -308,7 +315,8 @@ market-microstructure-analyzer/
 │   ├── api/                # FastAPI app + WebSocket streamer
 │   ├── ingestion/          # mock_source, angel_source (stub)
 │   ├── storage/            # Parquet tick store + Redis state cache
-│   └── tests/              # 51 tests: analytics, API/deployment, storage, research tools
+│   ├── data_quality.py     # conservative validation + JSONL quarantine
+│   └── tests/              # 57 tests: analytics, API, storage, quality, research tools
 ├── frontend/               # React + Vite dashboard
 ├── demo/                   # Self-contained offline replay
 ├── notebooks/              # Microstructure + latency analysis
