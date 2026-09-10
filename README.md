@@ -22,6 +22,8 @@ signals incrementally, and serves them over FastAPI and WebSockets to a React
 dashboard. Includes a seeded synthetic feed, a reproducible profiler, an OFI
 signal backtester, and a TWAP/VWAP execution simulator.
 
+**Live demo:** [Launch the interactive simulated replay](https://aarya-market-microstructure.ojasaarya30.chatgpt.site) — five symbols, five-level depth, streaming charts, and 1×–10× playback.
+
 **Reproducible profile on a laptop** (Python 3.12, seed `42`, 15,000 ticks,
 five symbols, all nine modules enabled):
 
