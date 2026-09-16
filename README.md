@@ -9,12 +9,11 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22057358.svg)](https://doi.org/10.5281/zenodo.22057358)
 
-> **Badge maintenance note.** The Codacy and SonarCloud URLs above point at
-> the current GitHub repo name. If the underlying Codacy / SonarCloud
-> projects were originally registered under the old name (`quantproject2`),
-> rename them on those dashboards or the badges will 404. Codacy's project
-> UUID is stable, so the *image* will keep rendering; the *link* is what needs
-> the rename.
+## Recruiter quick look
+
+- **[Explore the live replay](https://aarya-market-microstructure.ojasaarya30.chatgpt.site):** stream five Indian-equity books and inspect L2 depth, spread, VWAP, order-flow imbalance, and alerts.
+- **Research core:** nine online estimators, including event-level OFI, rolling Kyle's λ, Amihud, Roll, session VWAP, and execution-quality measures.
+- **Defensible scope:** seeded synthetic data, a reproducible latency profile, backtest and execution-simulation tooling; the live-data adapter is deliberately marked as a stub.
 
 A streaming market-microstructure engine for Indian equities: ingests
 five-level order-book snapshots, computes nine classical microstructure
