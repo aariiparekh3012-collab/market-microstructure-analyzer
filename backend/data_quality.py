@@ -111,13 +111,13 @@ class DataQualityGate:
             self.stats.rejected += 1
             for reason in unique_reasons:
                 self.stats.rejected_by_reason[reason] += 1
-            return result
+        else:
+            if repaired:
+                self.stats.repaired += 1
+            self._last_ts[normalized_symbol] = snap.ts
+            if snap.volume is not None:
+                self._last_volume[normalized_symbol] = snap.volume
 
-        if repaired:
-            self.stats.repaired += 1
-        self._last_ts[normalized_symbol] = snap.ts
-        if snap.volume is not None:
-            self._last_volume[normalized_symbol] = snap.volume
         return result
 
     def record_quarantine_write(self, *, success: bool) -> None:
