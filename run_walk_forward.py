@@ -12,16 +12,38 @@ import pandas as pd
 from backend.analytics.walk_forward import WalkForwardConfig, run_walk_forward
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+DATA_ROOT = (PROJECT_ROOT / "data").resolve()
+
+
+def _safe_output_path(value: str) -> Path:
+    """Resolve an output path and confine writes to the project's data directory."""
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = DATA_ROOT / candidate
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(DATA_ROOT)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"output path must stay inside {DATA_ROOT}"
+        ) from exc
+    return resolved
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, default=PROJECT_ROOT / "data" / "metrics.csv")
     parser.add_argument(
-        "--output", type=Path, default=PROJECT_ROOT / "data" / "walk_forward_folds.csv"
+        "--output",
+        type=_safe_output_path,
+        default="walk_forward_folds.csv",
+        help="CSV path relative to the project data directory",
     )
     parser.add_argument(
-        "--summary", type=Path, default=PROJECT_ROOT / "data" / "walk_forward_summary.json"
+        "--summary",
+        type=_safe_output_path,
+        default="walk_forward_summary.json",
+        help="JSON path relative to the project data directory",
     )
     parser.add_argument("--splits", type=int, default=4)
     parser.add_argument("--cost-bps", type=float, default=10.0)
