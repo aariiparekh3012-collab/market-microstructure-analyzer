@@ -22,7 +22,7 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: |
-          pip install uv
+          python -m pip install --disable-pip-version-check --only-binary=:all: uv==0.8.17
           uv sync --locked --extra dev
       - name: Lint
         run: uv run ruff check backend scripts run_backtest.py run_walk_forward.py run_execution_sim.py run_profiler.py tests
@@ -37,7 +37,7 @@ jobs:
       - name: Exercise reproducible research commands
         run: |
           uv run python scripts/generate_sample_data.py --ticks-per-symbol 600 --output /tmp/mma-data
-          uv run python run_walk_forward.py --input /tmp/mma-data/metrics.csv --output /tmp/mma-data/walk-forward.csv --summary /tmp/mma-data/walk-forward.json
+          uv run python run_walk_forward.py --input /tmp/mma-data/metrics.csv --output ci/walk-forward.csv --summary ci/walk-forward.json
           uv run python run_profiler.py --ticks 250 --output /tmp/mma-profile
 
   frontend:
@@ -49,7 +49,7 @@ jobs:
           node-version: 20
       - name: Install dependencies
         working-directory: frontend
-        run: npm install
+        run: npm ci --ignore-scripts
       - name: Build
         working-directory: frontend
         run: npm run build
@@ -66,12 +66,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Build wheel
         run: |
-          pip install uv
+          python -m pip install --disable-pip-version-check --only-binary=:all: uv==0.8.17
           uv build --wheel
       - name: Install wheel in a clean environment
         run: |
           python -m venv "$RUNNER_TEMP/mma-wheel-smoke"
           source "$RUNNER_TEMP/mma-wheel-smoke/bin/activate"
-          python -m pip install dist/*.whl
+          uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/mma-runtime.lock"
+          uv pip sync --python "$RUNNER_TEMP/mma-wheel-smoke/bin/python" "$RUNNER_TEMP/mma-runtime.lock"
+          uv pip install --python "$RUNNER_TEMP/mma-wheel-smoke/bin/python" --no-deps dist/*.whl
           cd "$RUNNER_TEMP"
-          python -c "from market_microstructure import Anomaly, BookLevel, Engine, OrderBookSnapshot"
+          "$RUNNER_TEMP/mma-wheel-smoke/bin/python" -c "from market_microstructure import Anomaly, BookLevel, Engine, OrderBookSnapshot"
