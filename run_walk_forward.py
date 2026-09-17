@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 
@@ -13,31 +12,28 @@ from backend.analytics.walk_forward import WalkForwardConfig, run_walk_forward
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_ROOT = PROJECT_ROOT / "data"
+INPUT_PATH = DATA_ROOT / "metrics.csv"
 OUTPUT_PATH = DATA_ROOT / "walk_forward_folds.csv"
 SUMMARY_PATH = DATA_ROOT / "walk_forward_summary.json"
+N_SPLITS = 4
+TRANSACTION_COST_BPS = 10.0
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, default=DATA_ROOT / "metrics.csv")
-    parser.add_argument("--splits", type=int, default=4)
-    parser.add_argument("--cost-bps", type=float, default=10.0)
-    args = parser.parse_args()
-
-    if not args.input.exists():
+    if not INPUT_PATH.exists():
         raise SystemExit(
-            f"Missing {args.input}. Run: python scripts/generate_sample_data.py"
+            f"Missing {INPUT_PATH}. Run: python scripts/generate_sample_data.py"
         )
 
-    frame = pd.read_csv(args.input)
+    frame = pd.read_csv(INPUT_PATH)
     config = WalkForwardConfig(
-        n_splits=args.splits,
-        transaction_cost_bps=args.cost_bps,
+        n_splits=N_SPLITS,
+        transaction_cost_bps=TRANSACTION_COST_BPS,
     )
     fold_rows: list[dict[str, object]] = []
     summaries: dict[str, object] = {
         "method": "expanding-window walk-forward",
-        "transaction_cost_bps_per_side": args.cost_bps,
+        "transaction_cost_bps_per_side": TRANSACTION_COST_BPS,
         "symbols": {},
     }
 
