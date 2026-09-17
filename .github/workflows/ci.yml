@@ -25,9 +25,9 @@ jobs:
           python -m pip install --disable-pip-version-check --only-binary=:all: uv==0.8.17
           uv sync --locked --extra dev
       - name: Lint
-        run: uv run --locked --no-build ruff check backend scripts run_backtest.py run_walk_forward.py run_execution_sim.py run_profiler.py tests
+        run: .venv/bin/ruff check backend scripts run_backtest.py run_walk_forward.py run_execution_sim.py run_profiler.py tests
       - name: Test with coverage
-        run: uv run --locked --no-build pytest --cov=backend --cov-report=term-missing --cov-report=xml:cobertura.xml --cov-fail-under=80
+        run: .venv/bin/pytest --cov=backend --cov-report=term-missing --cov-report=xml:cobertura.xml --cov-fail-under=80
       - name: Upload coverage to Codacy
         if: matrix.python-version == '3.12' && github.event_name == 'push'
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
@@ -36,9 +36,9 @@ jobs:
           coverage-reports: cobertura.xml
       - name: Exercise reproducible research commands
         run: |
-          uv run --locked --no-build python scripts/generate_sample_data.py --ticks-per-symbol 600 --output /tmp/mma-data
-          uv run --locked --no-build python run_walk_forward.py --input /tmp/mma-data/metrics.csv
-          uv run --locked --no-build python run_profiler.py --ticks 250 --output /tmp/mma-profile
+          .venv/bin/python scripts/generate_sample_data.py --ticks-per-symbol 600 --output data
+          .venv/bin/python run_walk_forward.py
+          .venv/bin/python run_profiler.py --ticks 250 --output /tmp/mma-profile
 
   frontend:
     runs-on: ubuntu-latest
