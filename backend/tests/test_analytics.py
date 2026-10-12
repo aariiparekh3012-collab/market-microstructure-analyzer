@@ -52,3 +52,19 @@ def test_vwap_resets_on_same_day_volume_restart():
     assert v.vwap is None
     v.update(_snap(99, 10, 102, 10, ltp=105, vol=10, ts=t + timedelta(seconds=3)))
     assert v.vwap == 105
+
+
+def test_volume_profile_resets_on_volume_restart_and_new_day():
+    from backend.analytics.volume import VolumeProfile
+    profile = VolumeProfile()
+    t = datetime(2026, 10, 12, 10, tzinfo=UTC)
+    profile.update(_snap(99, 10, 102, 10, ltp=100, vol=100, ts=t))
+    profile.update(_snap(99, 10, 102, 10, ltp=101, vol=120, ts=t + timedelta(seconds=1)))
+    assert sum(profile.profile.values()) == 20
+    profile.update(_snap(99, 10, 102, 10, ltp=110, vol=0, ts=t + timedelta(seconds=2)))
+    assert profile.profile == {}
+    assert profile.cumulative_delta == 0
+    profile.update(_snap(99, 10, 102, 10, ltp=105, vol=10, ts=t + timedelta(seconds=3)))
+    assert sum(profile.profile.values()) == 10
+    profile.update(_snap(99, 10, 102, 10, ltp=106, vol=100, ts=t + timedelta(days=1)))
+    assert profile.profile == {}
