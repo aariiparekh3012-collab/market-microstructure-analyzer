@@ -40,3 +40,15 @@ def test_vwap_progresses_with_volume():
     v.update(_snap(100.0, 100, 100.5, 100, ltp=99.0, vol=3000, ts=t0 + timedelta(seconds=2)))
     assert v.vwap is not None
     assert 99.0 <= v.vwap <= 101.0
+
+
+def test_vwap_resets_on_same_day_volume_restart():
+    v = SessionVWAP()
+    t = datetime(2026, 10, 12, 10, tzinfo=UTC)
+    v.update(_snap(99, 10, 102, 10, ltp=100, vol=100, ts=t))
+    v.update(_snap(99, 10, 102, 10, ltp=101, vol=120, ts=t + timedelta(seconds=1)))
+    assert v.vwap == 101
+    v.update(_snap(99, 10, 102, 10, ltp=110, vol=0, ts=t + timedelta(seconds=2)))
+    assert v.vwap is None
+    v.update(_snap(99, 10, 102, 10, ltp=105, vol=10, ts=t + timedelta(seconds=3)))
+    assert v.vwap == 105
