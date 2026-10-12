@@ -32,10 +32,12 @@ class SessionVWAP:
         if s.ltp is None or s.volume is None:
             return
 
+        # A falling cumulative counter signals a feed/session restart. Old
+        # session totals must not be mixed with the new counter sequence.
+        if self._prev_vol is not None and s.volume < self._prev_vol:
+            self.reset()
         dvol = s.volume - self._prev_vol if self._prev_vol is not None else 0
         self._prev_vol = s.volume
-        if dvol < 0:
-            dvol = 0
 
         if dvol > 0:
             self._pv += s.ltp * dvol
