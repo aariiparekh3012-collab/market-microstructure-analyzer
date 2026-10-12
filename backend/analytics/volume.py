@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 
 from ..models import OrderBookSnapshot
 
@@ -36,13 +37,26 @@ class VolumeProfile:
         self._delta: int = 0
         self._prev_cum_vol: int | None = None
         self._clf = TickRuleClassifier()
+        self._session_date: date | None = None
 
     def _bucket(self, price: float) -> float:
         return round((price // self.bucket_size) * self.bucket_size, 4)
 
+    def reset(self) -> None:
+        self._profile.clear()
+        self._delta = 0
+        self._prev_cum_vol = None
+        self._clf = TickRuleClassifier()
+
     def update(self, s: OrderBookSnapshot) -> None:
+        today = s.ts.date()
+        if self._session_date != today:
+            self._session_date = today
+            self.reset()
         if s.ltp is None or s.volume is None:
             return
+        if self._prev_cum_vol is not None and s.volume < self._prev_cum_vol:
+            self.reset()
         dvol = s.volume - self._prev_cum_vol if self._prev_cum_vol is not None else 0
         self._prev_cum_vol = s.volume
         if dvol <= 0:
